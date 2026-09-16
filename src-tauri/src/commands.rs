@@ -21,6 +21,8 @@ pub struct AppState {
     pub tunnels: Arc<TunnelManager>,
     /// debounce handle cho auto-sync
     pub autosync: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
+    /// Có thay đổi cục bộ chưa đẩy lên remote (để phát hiện conflict).
+    pub dirty: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Dựng chuỗi jump host từ `jump_host_id` (đệ quy, có chặn vòng lặp).
@@ -1325,14 +1327,27 @@ pub async fn sync_set_auto(
     Ok(())
 }
 
-/// Gom vault + mã hóa + đẩy lên GitHub. Dùng chung cho backup tay và auto.
-async fn build_and_push(
-    db: &SqlitePool,
-    master: &str,
-    pat: &str,
-    owner: &str,
-    repo: &str,
-) -> anyhow::Result<String> {
+const SYNC_SHA: &str = "sync:sha";
+
+fn get_last_sha() -> Option<String> {
+    keychain::get_secret(SYNC_SHA).ok().flatten().filter(|s| !s.is_empty())
+}
+fn set_last_sha(sha: &str) {
+    let _ = keychain::set_secret(SYNC_SHA, sha);
+}
+
+enum PushOutcome {
+    Pushed(String),
+    Conflict,
+}
+enum PullOutcome {
+    UpToDate,
+    Pulled,
+    Conflict,
+}
+
+/// Gom toàn bộ dữ liệu + secret → mã hóa E2E → (content base64, mô tả).
+async fn build_vault_content(db: &SqlitePool, master: &str) -> anyhow::Result<(String, String)> {
     let hosts = db::list_hosts(db).await?;
     let groups = db::list_groups(db).await?;
     let keys = db::list_keys(db).await?;
@@ -1374,14 +1389,80 @@ async fn build_and_push(
     let json = serde_json::to_vec(&vault)?;
     let enc = sync::encrypt(&json, master)?;
     let content_b64 = base64::engine::general_purpose::STANDARD.encode(&enc);
-    let sha = sync::get_vault(pat, owner, repo).await?.map(|(_, sha)| sha);
-    sync::put_vault(pat, owner, repo, &content_b64, sha, "Termez vault update").await?;
-    Ok(format!(
+    let summary = format!(
         "Pushed {} hosts, {} keys, {} tunnels",
         vault.hosts.len(),
         vault.keys.len(),
         vault.tunnels.len()
-    ))
+    );
+    Ok((content_b64, summary))
+}
+
+/// Đẩy lên GitHub. Nếu `force=false` và remote đã đổi so với mốc đã đồng bộ → Conflict.
+async fn do_push(
+    db: &SqlitePool,
+    master: &str,
+    pat: &str,
+    owner: &str,
+    repo: &str,
+    force: bool,
+) -> anyhow::Result<PushOutcome> {
+    let (content, summary) = build_vault_content(db, master).await?;
+    let remote_sha = sync::get_vault(pat, owner, repo).await?.map(|(_, s)| s);
+    let last = get_last_sha();
+    if !force {
+        let diverged = match (&remote_sha, &last) {
+            (Some(rs), Some(ls)) => rs != ls,
+            (Some(_), None) => true, // remote có data nhưng ta chưa từng đồng bộ
+            _ => false,
+        };
+        if diverged {
+            return Ok(PushOutcome::Conflict);
+        }
+    }
+    let new_sha = sync::put_vault(pat, owner, repo, &content, remote_sha, "Termez vault update").await?;
+    set_last_sha(&new_sha);
+    Ok(PushOutcome::Pushed(summary))
+}
+
+/// Kéo về + áp dụng. Nếu remote đổi và local đang dirty (chưa push) và !force → Conflict.
+async fn do_pull(
+    db: &SqlitePool,
+    master: &str,
+    pat: &str,
+    owner: &str,
+    repo: &str,
+    dirty: bool,
+    force: bool,
+) -> anyhow::Result<PullOutcome> {
+    let Some((content_b64, sha)) = sync::get_vault(pat, owner, repo).await? else {
+        return Ok(PullOutcome::UpToDate);
+    };
+    if get_last_sha().as_deref() == Some(&sha) {
+        return Ok(PullOutcome::UpToDate);
+    }
+    if dirty && !force {
+        return Ok(PullOutcome::Conflict);
+    }
+    let enc = base64::engine::general_purpose::STANDARD.decode(content_b64.as_bytes())?;
+    let json = sync::decrypt(&enc, master)?;
+    let vault: sync::Vault = serde_json::from_slice(&json)?;
+    db::import_all(
+        db,
+        &vault.hosts,
+        &vault.groups,
+        &vault.keys,
+        &vault.tunnels,
+        &vault.entries,
+        &vault.folders,
+        &vault.buckets,
+    )
+    .await?;
+    for (acc, val) in &vault.secrets {
+        keychain::set_secret(acc, val)?;
+    }
+    set_last_sha(&sha);
+    Ok(PullOutcome::Pulled)
 }
 
 /// Lên lịch auto-backup (debounce 3s) sau mỗi thay đổi dữ liệu.
@@ -1389,7 +1470,9 @@ pub fn schedule_autosync(app: AppHandle, state: &AppState) {
     if keychain::get_secret(SYNC_AUTO).ok().flatten().as_deref() != Some("1") {
         return;
     }
+    state.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
     let pool = state.db.clone();
+    let dirty = state.dirty.clone();
     let mut guard = state.autosync.lock().unwrap();
     if let Some(h) = guard.take() {
         h.abort();
@@ -1407,13 +1490,74 @@ pub fn schedule_autosync(app: AppHandle, state: &AppState) {
         let Ok((owner, r)) = sync::parse_repo(&repo) else {
             return;
         };
-        let (ok, message) = match build_and_push(&pool, &master, &pat, &owner, &r).await {
-            Ok(m) => (true, m),
-            Err(e) => (false, e.to_string()),
-        };
-        let _ = app.emit("sync:auto", serde_json::json!({ "ok": ok, "message": message }));
+        match do_push(&pool, &master, &pat, &owner, &r, false).await {
+            Ok(PushOutcome::Pushed(msg)) => {
+                dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+                let _ = app.emit("sync:auto", serde_json::json!({ "ok": true, "message": msg }));
+            }
+            Ok(PushOutcome::Conflict) => {
+                let _ = app.emit("sync:conflict", ());
+                let _ = app.emit("sync:auto", serde_json::json!({ "ok": false, "message": "conflict" }));
+            }
+            Err(e) => {
+                let _ = app.emit("sync:auto", serde_json::json!({ "ok": false, "message": e.to_string() }));
+            }
+        }
     });
     *guard = Some(handle.abort_handle());
+}
+
+/// Auto-pull (gọi lúc khởi động + định kỳ). Trả về trạng thái để UI hiển thị.
+#[tauri::command]
+pub async fn sync_auto_pull(app: AppHandle, state: State<'_, AppState>) -> R<String> {
+    if keychain::get_secret(SYNC_AUTO).map_err(e)?.as_deref() != Some("1") {
+        return Ok("disabled".into());
+    }
+    let (master, pat, repo) = match (
+        keychain::get_secret(SYNC_MASTER).map_err(e)?,
+        keychain::get_secret(SYNC_PAT).map_err(e)?,
+        keychain::get_secret(SYNC_REPO).map_err(e)?,
+    ) {
+        (Some(m), Some(p), Some(r)) => (m, p, r),
+        _ => return Ok("disabled".into()),
+    };
+    let (owner, r) = sync::parse_repo(&repo).map_err(e)?;
+    let dirty = state.dirty.load(std::sync::atomic::Ordering::Relaxed);
+    match do_pull(&state.db, &master, &pat, &owner, &r, dirty, false).await.map_err(e)? {
+        PullOutcome::UpToDate => Ok("uptodate".into()),
+        PullOutcome::Pulled => {
+            state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+            let _ = app.emit("sync:pulled", ());
+            Ok("pulled".into())
+        }
+        PullOutcome::Conflict => {
+            let _ = app.emit("sync:conflict", ());
+            Ok("conflict".into())
+        }
+    }
+}
+
+/// Giải quyết conflict: "local" = giữ máy này (đẩy đè remote); "remote" = lấy remote (bỏ thay đổi local).
+#[tauri::command]
+pub async fn sync_resolve_conflict(app: AppHandle, state: State<'_, AppState>, choice: String) -> R<String> {
+    let master = keychain::get_secret(SYNC_MASTER)
+        .map_err(e)?
+        .ok_or_else(|| "Auto-sync master password not set".to_string())?;
+    let (pat, owner, repo) = sync_creds()?;
+    if choice == "local" {
+        match do_push(&state.db, &master, &pat, &owner, &repo, true).await.map_err(e)? {
+            PushOutcome::Pushed(_) => {
+                state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+                Ok("kept-local".into())
+            }
+            PushOutcome::Conflict => Ok("conflict".into()),
+        }
+    } else {
+        do_pull(&state.db, &master, &pat, &owner, &repo, false, true).await.map_err(e)?;
+        state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+        let _ = app.emit("sync:pulled", ());
+        Ok("used-remote".into())
+    }
 }
 
 #[tauri::command]
@@ -1445,25 +1589,27 @@ fn sync_creds() -> R<(String, String, String)> {
 #[tauri::command]
 pub async fn sync_push(state: State<'_, AppState>, master: String) -> R<String> {
     let (pat, owner, repo) = sync_creds()?;
-    build_and_push(&state.db, &master, &pat, &owner, &repo)
-        .await
-        .map_err(e)
+    match do_push(&state.db, &master, &pat, &owner, &repo, true).await.map_err(e)? {
+        PushOutcome::Pushed(msg) => {
+            state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+            Ok(msg)
+        }
+        PushOutcome::Conflict => Err("Remote changed — conflict".into()),
+    }
 }
 
 #[tauri::command]
 pub async fn sync_pull(state: State<'_, AppState>, master: String) -> R<String> {
     let (pat, owner, repo) = sync_creds()?;
-
-    let (content_b64, _sha) = sync::get_vault(&pat, &owner, &repo)
-        .await
-        .map_err(e)?
-        .ok_or_else(|| "No vault.enc in repo yet (never backed up?)".to_string())?;
+    // Pull tay = lấy remote (force), kể cả khi trùng sha (khôi phục lại).
+    let Some((content_b64, sha)) = sync::get_vault(&pat, &owner, &repo).await.map_err(e)? else {
+        return Err("No vault.enc in repo yet (never backed up?)".into());
+    };
     let enc = base64::engine::general_purpose::STANDARD
         .decode(content_b64.as_bytes())
         .map_err(e)?;
     let json = sync::decrypt(&enc, &master).map_err(e)?;
     let vault: sync::Vault = serde_json::from_slice(&json).map_err(e)?;
-
     db::import_all(
         &state.db,
         &vault.hosts,
@@ -1479,7 +1625,8 @@ pub async fn sync_pull(state: State<'_, AppState>, master: String) -> R<String> 
     for (acc, val) in &vault.secrets {
         keychain::set_secret(acc, val).map_err(e)?;
     }
-
+    set_last_sha(&sha);
+    state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
     Ok(format!(
         "Restored {} hosts, {} keys, {} tunnels",
         vault.hosts.len(),

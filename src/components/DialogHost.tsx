@@ -34,7 +34,7 @@ export function DialogHost() {
 
   return (
     <Dialog open={cur !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-3 sm:max-w-sm">
+      <DialogContent className="gap-3 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -51,7 +51,7 @@ export function DialogHost() {
             />
           </>
         ) : (
-          cur && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{cur.opts.message}</p>
+          cur && <p className="max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{cur.opts.message}</p>
         )}
 
         <DialogFooter>

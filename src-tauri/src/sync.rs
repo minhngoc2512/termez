@@ -124,7 +124,7 @@ pub async fn put_vault(
     content_b64: &str,
     sha: Option<String>,
     message: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{VAULT_PATH}");
     let mut body = serde_json::json!({ "message": message, "content": content_b64 });
     if let Some(s) = sha {
@@ -142,7 +142,9 @@ pub async fn put_vault(
         let s = resp.status();
         anyhow::bail!("GitHub PUT lỗi {}: {}", s, resp.text().await.unwrap_or_default());
     }
-    Ok(())
+    // Trả về sha mới của file (để làm mốc đồng bộ).
+    let j: serde_json::Value = resp.json().await.unwrap_or_default();
+    Ok(j["content"]["sha"].as_str().unwrap_or("").to_string())
 }
 
 #[cfg(test)]

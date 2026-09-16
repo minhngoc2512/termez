@@ -37,6 +37,7 @@ pub fn run() {
                 sftp: Arc::new(sftp::SftpManager::new()),
                 tunnels: Arc::new(tunnel::TunnelManager::new()),
                 autosync: std::sync::Mutex::new(None),
+                dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             });
             Ok(())
         })
@@ -120,6 +121,8 @@ pub fn run() {
             commands::sync_set_auto,
             commands::sync_push,
             commands::sync_pull,
+            commands::sync_auto_pull,
+            commands::sync_resolve_conflict,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

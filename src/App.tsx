@@ -29,8 +29,10 @@ import { LockScreen } from "./components/LockScreen";
 import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { listen } from "@tauri-apps/api/event";
 import { useStore } from "./store";
-import { Host } from "./lib/ipc";
+import { api, Host } from "./lib/ipc";
+import { SyncConflictDialog } from "./components/SyncConflictDialog";
 
 const components = {
   terminal: (
@@ -74,6 +76,17 @@ export default function App() {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // Auto-pull data mới nhất từ cloud: lúc khởi động + mỗi 2 phút. Refresh khi có pull.
+  useEffect(() => {
+    let un: Promise<() => void> | undefined;
+    try {
+      un = listen("sync:pulled", () => refresh());
+    } catch { /* ngoài Tauri */ }
+    api.syncAutoPull().catch(() => {});
+    const iv = window.setInterval(() => { api.syncAutoPull().catch(() => {}); }, 120_000);
+    return () => { window.clearInterval(iv); un?.then((f) => f()).catch(() => {}); };
   }, [refresh]);
 
   // Kiểm tra trạng thái khóa lúc khởi động — nếu bật thì khóa ngay (không lộ dữ liệu).
@@ -268,6 +281,7 @@ export default function App() {
       <HostForm open={formOpen} host={editing} preset={preset} onOpenChange={setFormOpen} onSaved={refresh} />
       <KeyManager open={keysOpen} onOpenChange={setKeysOpen} />
       <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
+      <SyncConflictDialog />
       <DialogHost />
     </div>
   );

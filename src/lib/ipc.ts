@@ -342,6 +342,9 @@ export const api = {
     invoke<void>("sync_set_auto", { enabled, master }),
   syncPush: (master: string) => invoke<string>("sync_push", { master }),
   syncPull: (master: string) => invoke<string>("sync_pull", { master }),
+  syncAutoPull: () => invoke<string>("sync_auto_pull"),
+  syncResolveConflict: (choice: "local" | "remote") =>
+    invoke<string>("sync_resolve_conflict", { choice }),
 
   getTunnels: () => invoke<Tunnel[]>("get_tunnels"),
   upsertTunnel: (input: TunnelInput) => invoke<Tunnel>("upsert_tunnel", { input }),
