@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { ArrowRight, ArrowLeft } from "lucide-react";
 import { api, joinPath, SftpProgress } from "../lib/ipc";
+import { alertDialog } from "../lib/dialogs";
 import { useStore } from "../store";
 import { DragPayload, FilePane, PaneState } from "./FilePane";
 
@@ -65,7 +66,7 @@ export function SftpView() {
     reloadSide: "left" | "right"
   ) {
     if (isDir) {
-      alert("For now only files can be transferred (folders not supported yet).");
+      alertDialog({ title: "Not supported", message: "For now only files can be transferred (folders not supported yet)." });
       return;
     }
     if (srcEndpoint === dstEndpoint && srcPath === dstPath) return;
@@ -74,7 +75,7 @@ export function SftpView() {
       jobSide.current[jobId] = reloadSide;
       setJobs((j) => ({ ...j, [jobId]: { name, transferred: 0, total: size, status: "running" } }));
     } catch (e) {
-      alert(String(e));
+      alertDialog({ title: "Transfer failed", message: String(e) });
     }
   }
 
@@ -82,7 +83,7 @@ export function SftpView() {
     const src = dir === "lr" ? left.current : right.current;
     const dst = dir === "lr" ? right.current : left.current;
     if (!src.selected) {
-      alert("Select a file in the source pane first.");
+      alertDialog({ title: "No file selected", message: "Select a file in the source pane first." });
       return;
     }
     runTransfer(src.endpoint, src.path, src.selected.name, src.selected.is_dir, src.selected.size, dst.endpoint, dst.path, dir === "lr" ? "right" : "left");

@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X } from "lucide-react";
+import { Minus, Square, X, PanelLeft, Lock } from "lucide-react";
 
 async function ctl(action: "min" | "max" | "close") {
   try {
@@ -12,14 +12,32 @@ async function ctl(action: "min" | "max" | "close") {
   }
 }
 
-export function TitleBar() {
+export function TitleBar({ onToggleNav, onLock }: { onToggleNav?: () => void; onLock?: () => void }) {
   return (
     <div
       data-tauri-drag-region
-      className="flex h-8 shrink-0 select-none items-center justify-between border-b border-border bg-sidebar pl-3"
+      className="flex h-8 shrink-0 select-none items-center justify-between border-b border-border bg-sidebar"
     >
-      <div data-tauri-drag-region className="pointer-events-none flex items-center gap-2 text-sm">
-        <span className="font-semibold">⌘ Termez</span>
+      <div className="flex items-center gap-1 pl-1">
+        {onToggleNav && (
+          <button
+            onClick={onToggleNav}
+            className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Toggle sidebar"
+          >
+            <PanelLeft className="size-4" />
+          </button>
+        )}
+        <span data-tauri-drag-region className="pointer-events-none text-sm font-semibold">⌘ Termez</span>
+        {onLock && (
+          <button
+            onClick={onLock}
+            className="ml-1 flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Lock app now"
+          >
+            <Lock className="size-4" />
+          </button>
+        )}
       </div>
       <div className="flex items-center">
         <button

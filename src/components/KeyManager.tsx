@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Lock, Trash2 } from "lucide-react";
 import { api } from "../lib/ipc";
+import { confirmDialog } from "../lib/dialogs";
 import { useStore } from "../store";
 import {
   Dialog,
@@ -62,7 +63,12 @@ export function KeyManager({ open, onOpenChange }: Props) {
   }
 
   async function del(id: string, kname: string) {
-    if (!confirm(`Delete key "${kname}"? (its private key in the keychain is also removed)`)) return;
+    if (!(await confirmDialog({
+      title: "Delete key",
+      message: `Delete key "${kname}"? (its private key in the keychain is also removed)`,
+      confirmText: "Delete",
+      danger: true,
+    }))) return;
     await api.deleteKey(id);
     refresh();
   }

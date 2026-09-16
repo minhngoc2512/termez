@@ -46,10 +46,20 @@ export function strength(pw: string): { score: number; label: string } {
   return { score, label: ["Very weak", "Weak", "Fair", "Good", "Strong"][score] };
 }
 
-/** Copy vào clipboard rồi tự xóa sau `ms` (mặc định 20s). */
-export function copyClearing(text: string, ms = 20000) {
+/**
+ * Copy vào clipboard rồi tự xóa sau `ms` (mặc định 10s, giống KeePassXC).
+ * Chỉ xóa nếu clipboard vẫn đang giữ đúng giá trị này — tránh xóa nhầm thứ
+ * người dùng copy sau đó.
+ */
+export function copyClearing(text: string, ms = 10000) {
   navigator.clipboard.writeText(text).catch(() => {});
-  window.setTimeout(() => {
+  window.setTimeout(async () => {
+    try {
+      const cur = await navigator.clipboard.readText();
+      if (cur !== text) return; // người dùng đã copy thứ khác → để yên
+    } catch {
+      /* không đọc được clipboard → cứ xóa cho an toàn */
+    }
     navigator.clipboard.writeText("").catch(() => {});
   }, ms);
 }

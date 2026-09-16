@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, AuthType, Host, HostInput } from "../lib/ipc";
+import { promptDialog, alertDialog } from "../lib/dialogs";
 import { TERM_THEMES } from "../lib/themes";
 import { useStore } from "../store";
 import {
@@ -96,14 +97,14 @@ export function HostForm({ open, host, onOpenChange, onSaved }: Props) {
   }, [open, host]);
 
   async function createGroupInline() {
-    const name = prompt("New group name:");
+    const name = await promptDialog({ title: "New group", placeholder: "Group name", confirmText: "Create" });
     if (!name?.trim()) return;
     try {
       const g = await api.createGroup(name.trim(), null);
       await refresh();
       setGroupId(g.id);
     } catch (e) {
-      alert(String(e));
+      alertDialog({ title: "Error", message: String(e) });
     }
   }
 

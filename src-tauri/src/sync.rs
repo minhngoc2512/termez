@@ -23,6 +23,8 @@ pub struct Vault {
     pub tunnels: Vec<Tunnel>,
     #[serde(default)]
     pub entries: Vec<VaultEntry>,
+    #[serde(default)]
+    pub folders: Vec<String>,
     /// account keychain -> giá trị (mật khẩu host, private key, passphrase, proxy pass…)
     pub secrets: HashMap<String, String>,
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CloudUpload, CloudDownload, Save, Loader2 } from "lucide-react";
 import { api } from "../lib/ipc";
+import { confirmDialog } from "../lib/dialogs";
 import { useStore } from "../store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -79,7 +80,12 @@ export function SyncDialog({ open, onOpenChange }: Props) {
 
   async function pull() {
     if (!master) return setMsg({ text: "Enter your master password.", err: true });
-    if (!confirm("Restore overwrites your local hosts/keys/tunnels with the cloud vault. Continue?"))
+    if (!(await confirmDialog({
+      title: "Restore from cloud",
+      message: "Restore overwrites your local hosts/keys/tunnels with the cloud vault. Continue?",
+      confirmText: "Restore",
+      danger: true,
+    })))
       return;
     setBusy("pull");
     setMsg(null);

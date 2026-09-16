@@ -195,6 +195,10 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             created_at     INTEGER NOT NULL,
             updated_at     INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS vault_folders (
+            path        TEXT PRIMARY KEY,
+            created_at  INTEGER NOT NULL
+        );
         "#,
     )
     .execute(pool)
@@ -583,6 +587,55 @@ pub async fn delete_entry(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ----- Thư mục vault (cho phép thư mục rỗng + thư mục con dạng path "a/b/c") -----
+
+pub async fn list_vault_folders(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT path FROM vault_folders ORDER BY path COLLATE NOCASE")
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|(p,)| p).collect())
+}
+
+pub async fn create_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Result<()> {
+    sqlx::query("INSERT OR IGNORE INTO vault_folders (path, created_at) VALUES (?, ?)")
+        .bind(path)
+        .bind(now())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Xóa một thư mục và mọi thư mục con (path bắt đầu bằng "folder/").
+pub async fn delete_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Result<()> {
+    let prefix = format!("{path}/%");
+    sqlx::query("DELETE FROM vault_folders WHERE path = ? OR path LIKE ?")
+        .bind(path)
+        .bind(&prefix)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Đổi tên/đường dẫn thư mục: đổi cả bản ghi thư mục con và cập nhật entry (giữ prefix).
+pub async fn rename_vault_folder(pool: &SqlitePool, old: &str, new: &str) -> anyhow::Result<()> {
+    let old_like = format!("{old}/%");
+    let new_prefix = format!("{new}/");
+    // substr là 1-index theo ký tự → bỏ qua "old/" rồi ghép prefix mới.
+    let skip = (format!("{old}/").chars().count() as i64) + 1;
+
+    sqlx::query("UPDATE OR IGNORE vault_folders SET path = ? WHERE path = ?")
+        .bind(new).bind(old).execute(pool).await?;
+    sqlx::query("UPDATE OR IGNORE vault_folders SET path = ? || substr(path, ?) WHERE path LIKE ?")
+        .bind(&new_prefix).bind(skip).bind(&old_like).execute(pool).await?;
+
+    sqlx::query("UPDATE vault_entries SET folder = ? WHERE folder = ?")
+        .bind(new).bind(old).execute(pool).await?;
+    sqlx::query("UPDATE vault_entries SET folder = ? || substr(folder, ?) WHERE folder LIKE ?")
+        .bind(&new_prefix).bind(skip).bind(&old_like).execute(pool).await?;
+    Ok(())
+}
+
 // ----- Sync: nhập toàn bộ dữ liệu (khôi phục vault) -----
 
 /// Xóa sạch rồi ghi lại toàn bộ từ vault. (Secret khôi phục riêng vào keychain.)
@@ -593,9 +646,17 @@ pub async fn import_all(
     keys: &[SshKey],
     tunnels: &[Tunnel],
     entries: &[VaultEntry],
+    folders: &[String],
 ) -> anyhow::Result<()> {
-    for t in ["tunnels", "hosts", "ssh_keys", "groups", "vault_entries"] {
+    for t in ["tunnels", "hosts", "ssh_keys", "groups", "vault_entries", "vault_folders"] {
         sqlx::query(&format!("DELETE FROM {t}")).execute(pool).await?;
+    }
+    for path in folders {
+        sqlx::query("INSERT OR IGNORE INTO vault_folders (path, created_at) VALUES (?, ?)")
+            .bind(path)
+            .bind(now())
+            .execute(pool)
+            .await?;
     }
     for en in entries {
         sqlx::query(

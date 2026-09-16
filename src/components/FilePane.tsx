@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Folder, File as FileIcon, ArrowUp, FolderPlus, RefreshCw, Trash2 } from "lucide-react";
 import { api, FileEntry, Host, joinPath, parentPath } from "../lib/ipc";
+import { confirmDialog, promptDialog, alertDialog } from "../lib/dialogs";
 import { EndpointPicker } from "./EndpointPicker";
 import { cn } from "@/lib/utils";
 
@@ -101,24 +102,24 @@ export function FilePane({ hosts, side, reloadKey, onChange, onDropTransfer }: P
   }
 
   async function mkdir() {
-    const name = prompt("New folder name:");
+    const name = await promptDialog({ title: "New folder", placeholder: "Folder name", confirmText: "Create" });
     if (!name) return;
     try {
       await api.fsMkdir(endpoint, joinPath(path, name));
       load();
     } catch (e) {
-      alert(String(e));
+      alertDialog({ title: "Error", message: String(e) });
     }
   }
 
   async function del(entry: FileEntry, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirm(`Delete "${entry.name}"?`)) return;
+    if (!(await confirmDialog({ title: "Delete", message: `Delete "${entry.name}"?`, confirmText: "Delete", danger: true }))) return;
     try {
       await api.fsDelete(endpoint, joinPath(path, entry.name), entry.is_dir);
       load();
     } catch (err) {
-      alert(String(err));
+      alertDialog({ title: "Error", message: String(err) });
     }
   }
 

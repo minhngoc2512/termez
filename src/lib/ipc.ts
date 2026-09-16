@@ -191,6 +191,18 @@ export const api = {
     invoke<{ code: string; remaining: number }>("entry_totp_code", { id }),
   importKdbx: (path: string, password: string) =>
     invoke<string>("import_kdbx", { path, password }),
+  getVaultFolders: () => invoke<string[]>("get_vault_folders"),
+  createVaultFolder: (path: string) => invoke<void>("create_vault_folder", { path }),
+  deleteVaultFolder: (path: string) => invoke<void>("delete_vault_folder", { path }),
+  renameVaultFolder: (oldPath: string, newPath: string) =>
+    invoke<void>("rename_vault_folder", { old: oldPath, new: newPath }),
+
+  applockStatus: () => invoke<{ enabled: boolean; timeout_mins: number }>("applock_status"),
+  applockEnable: (password: string, timeoutMins: number) =>
+    invoke<void>("applock_enable", { password, timeoutMins }),
+  applockDisable: (password: string) => invoke<void>("applock_disable", { password }),
+  applockVerify: (password: string) => invoke<boolean>("applock_verify", { password }),
+  applockSetTimeout: (timeoutMins: number) => invoke<void>("applock_set_timeout", { timeoutMins }),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

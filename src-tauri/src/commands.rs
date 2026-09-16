@@ -432,6 +432,99 @@ pub async fn entry_totp_code(_state: State<'_, AppState>, id: String) -> R<TotpC
     Ok(TotpCode { code, remaining })
 }
 
+#[tauri::command]
+pub async fn get_vault_folders(state: State<'_, AppState>) -> R<Vec<String>> {
+    db::list_vault_folders(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn create_vault_folder(app: AppHandle, state: State<'_, AppState>, path: String) -> R<()> {
+    let path = path.trim().trim_matches('/').to_string();
+    if path.is_empty() {
+        return Err("Folder name is empty".into());
+    }
+    db::create_vault_folder(&state.db, &path).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_vault_folder(app: AppHandle, state: State<'_, AppState>, path: String) -> R<()> {
+    db::delete_vault_folder(&state.db, &path).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_vault_folder(app: AppHandle, state: State<'_, AppState>, old: String, new: String) -> R<()> {
+    let new = new.trim().trim_matches('/').to_string();
+    if new.is_empty() {
+        return Err("Folder name is empty".into());
+    }
+    db::rename_vault_folder(&state.db, &old, &new).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
+}
+
+// ----- Khóa ứng dụng (mở tool bằng mật khẩu) -----
+
+const APPLOCK: &str = "applock";
+const APPLOCK_TIMEOUT: &str = "applock-timeout";
+
+#[derive(serde::Serialize)]
+pub struct AppLockStatus {
+    enabled: bool,
+    timeout_mins: u32,
+}
+
+#[tauri::command]
+pub async fn applock_status() -> R<AppLockStatus> {
+    let enabled = keychain::get_secret(APPLOCK).map_err(e)?.is_some();
+    let timeout_mins = keychain::get_secret(APPLOCK_TIMEOUT)
+        .map_err(e)?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    Ok(AppLockStatus { enabled, timeout_mins })
+}
+
+#[tauri::command]
+pub async fn applock_enable(password: String, timeout_mins: u32) -> R<()> {
+    if password.trim().is_empty() {
+        return Err("Password is empty".into());
+    }
+    let phc = crate::applock::hash(&password).map_err(e)?;
+    keychain::set_secret(APPLOCK, &phc).map_err(e)?;
+    keychain::set_secret(APPLOCK_TIMEOUT, &timeout_mins.to_string()).map_err(e)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn applock_disable(password: String) -> R<()> {
+    match keychain::get_secret(APPLOCK).map_err(e)? {
+        Some(phc) if crate::applock::verify(&password, &phc) => {
+            keychain::delete_secret(APPLOCK).map_err(e)?;
+            keychain::delete_secret(APPLOCK_TIMEOUT).ok();
+            Ok(())
+        }
+        Some(_) => Err("Wrong password".into()),
+        None => Ok(()),
+    }
+}
+
+#[tauri::command]
+pub async fn applock_verify(password: String) -> R<bool> {
+    match keychain::get_secret(APPLOCK).map_err(e)? {
+        Some(phc) => Ok(crate::applock::verify(&password, &phc)),
+        None => Ok(true),
+    }
+}
+
+#[tauri::command]
+pub async fn applock_set_timeout(timeout_mins: u32) -> R<()> {
+    keychain::set_secret(APPLOCK_TIMEOUT, &timeout_mins.to_string()).map_err(e)?;
+    Ok(())
+}
+
 #[derive(serde::Deserialize)]
 struct ImportedEntry {
     title: String,
@@ -608,6 +701,7 @@ async fn build_and_push(
     let keys = db::list_keys(db).await?;
     let tunnels = db::list_tunnels(db).await?;
     let entries = db::list_entries(db).await?;
+    let folders = db::list_vault_folders(db).await?;
 
     let mut secrets = std::collections::HashMap::new();
     for h in &hosts {
@@ -632,7 +726,7 @@ async fn build_and_push(
         }
     }
 
-    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, secrets };
+    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, folders, secrets };
     let json = serde_json::to_vec(&vault)?;
     let enc = sync::encrypt(&json, master)?;
     let content_b64 = base64::engine::general_purpose::STANDARD.encode(&enc);
@@ -733,6 +827,7 @@ pub async fn sync_pull(state: State<'_, AppState>, master: String) -> R<String> 
         &vault.keys,
         &vault.tunnels,
         &vault.entries,
+        &vault.folders,
     )
     .await
     .map_err(e)?;

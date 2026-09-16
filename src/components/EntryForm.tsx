@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Eye, EyeOff } from "lucide-react";
 import { api, VaultEntry, VaultEntryInput } from "../lib/ipc";
 import { generatePassword, strength } from "../lib/passwords";
 import { useStore } from "../store";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 interface Props {
   open: boolean;
   entry?: VaultEntry | null;
+  initialFolder?: string;
   onOpenChange: (o: boolean) => void;
   onSaved: () => void;
 }
@@ -29,7 +30,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function EntryForm({ open, entry, onOpenChange, onSaved }: Props) {
+export function EntryForm({ open, entry, initialFolder, onOpenChange, onSaved }: Props) {
   const hosts = useStore((s) => s.hosts);
   const [title, setTitle] = useState("");
   const [username, setUsername] = useState("");
@@ -42,6 +43,7 @@ export function EntryForm({ open, entry, onOpenChange, onSaved }: Props) {
   const [linked, setLinked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showPw, setShowPw] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -51,11 +53,12 @@ export function EntryForm({ open, entry, onOpenChange, onSaved }: Props) {
     setUrl(entry?.url ?? "");
     setNotes(entry?.notes ?? "");
     setTags(entry?.tags ?? "");
-    setFolder(entry?.folder ?? "");
+    setFolder(entry?.folder ?? initialFolder ?? "");
     setTotp("");
     setLinked(entry?.linked_host_id ?? null);
     setError(null);
-  }, [open, entry]);
+    setShowPw(false);
+  }, [open, entry, initialFolder]);
 
   const st = strength(password);
 
@@ -103,12 +106,20 @@ export function EntryForm({ open, entry, onOpenChange, onSaved }: Props) {
         <Field label="Password">
           <div className="flex gap-2">
             <Input
-              type="text"
+              type={showPw ? "text" : "password"}
               className="font-mono"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={entry ? "(leave blank to keep current)" : ""}
             />
+            <Button
+              type="button"
+              variant="outline"
+              title={showPw ? "Hide password" : "Show password"}
+              onClick={() => setShowPw((v) => !v)}
+            >
+              {showPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </Button>
             <Button
               type="button"
               variant="outline"

@@ -1,3 +1,4 @@
+mod applock;
 mod commands;
 mod conn;
 mod db;
@@ -70,6 +71,15 @@ pub fn run() {
             commands::delete_entry,
             commands::entry_password,
             commands::entry_totp_code,
+            commands::get_vault_folders,
+            commands::create_vault_folder,
+            commands::delete_vault_folder,
+            commands::rename_vault_folder,
+            commands::applock_status,
+            commands::applock_enable,
+            commands::applock_disable,
+            commands::applock_verify,
+            commands::applock_set_timeout,
             commands::import_kdbx,
             commands::sync_get_config,
             commands::sync_save_config,

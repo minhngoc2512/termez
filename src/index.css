@@ -76,5 +76,18 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* App-like: không cho bôi đen text lung tung (đỡ giống web) */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  /* Cho phép bôi đen/chọn ở nơi thực sự cần: ô nhập liệu và màn terminal */
+  input,
+  textarea,
+  [contenteditable="true"],
+  .xterm,
+  .xterm * {
+    user-select: text;
+    -webkit-user-select: text;
   }
 }

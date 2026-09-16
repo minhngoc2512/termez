@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Plus, Play, Square, Pencil, Trash2 } from "lucide-react";
 import { api, Tunnel, TunnelStatus } from "../lib/ipc";
+import { confirmDialog } from "../lib/dialogs";
 import { useStore } from "../store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,7 @@ export function ForwardingView() {
     }
   }
   async function del(t: Tunnel) {
-    if (!confirm(`Delete tunnel "${t.name}"?`)) return;
+    if (!(await confirmDialog({ title: "Delete tunnel", message: `Delete tunnel "${t.name}"?`, confirmText: "Delete", danger: true }))) return;
     await api.deleteTunnel(t.id);
     refresh();
   }
