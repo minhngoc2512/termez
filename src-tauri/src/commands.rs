@@ -525,6 +525,48 @@ pub async fn applock_set_timeout(timeout_mins: u32) -> R<()> {
     Ok(())
 }
 
+// ----- Quét mạng (TCP connect) -----
+
+#[tauri::command]
+pub async fn scan_hosts(
+    cidr: String,
+    port: u16,
+    timeout_ms: Option<u64>,
+    concurrency: Option<usize>,
+) -> R<Vec<String>> {
+    crate::scan::scan_hosts(&cidr, port, timeout_ms.unwrap_or(400), concurrency.unwrap_or(256))
+        .await
+        .map_err(e)
+}
+
+#[tauri::command]
+pub async fn scan_ports(
+    target: String,
+    ports: Vec<u16>,
+    timeout_ms: Option<u64>,
+    concurrency: Option<usize>,
+) -> R<Vec<u16>> {
+    crate::scan::scan_ports(&target, ports, timeout_ms.unwrap_or(500), concurrency.unwrap_or(256))
+        .await
+        .map_err(e)
+}
+
+#[tauri::command]
+pub async fn scan_lan(
+    cidr: String,
+    timeout_ms: Option<u64>,
+    concurrency: Option<usize>,
+) -> R<Vec<crate::scan::LanDevice>> {
+    crate::scan::scan_lan(&cidr, timeout_ms.unwrap_or(500), concurrency.unwrap_or(256))
+        .await
+        .map_err(e)
+}
+
+#[tauri::command]
+pub async fn local_cidr() -> R<Option<String>> {
+    Ok(crate::scan::local_cidr())
+}
+
 #[derive(serde::Deserialize)]
 struct ImportedEntry {
     title: String,

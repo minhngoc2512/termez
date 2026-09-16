@@ -144,6 +144,15 @@ export interface SshClosedPayload {
   id: string;
 }
 
+export interface LanDevice {
+  ip: string;
+  mac: string;
+  vendor: string | null;
+  hostname: string | null;
+  is_gateway: boolean;
+  is_self: boolean;
+}
+
 // Tauri tự chuyển camelCase (JS) → snake_case (tham số Rust).
 export const api = {
   getGroups: () => invoke<Group[]>("get_groups"),
@@ -203,6 +212,11 @@ export const api = {
   applockDisable: (password: string) => invoke<void>("applock_disable", { password }),
   applockVerify: (password: string) => invoke<boolean>("applock_verify", { password }),
   applockSetTimeout: (timeoutMins: number) => invoke<void>("applock_set_timeout", { timeoutMins }),
+
+  scanHosts: (cidr: string, port: number) => invoke<string[]>("scan_hosts", { cidr, port }),
+  scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),
+  scanLan: (cidr: string) => invoke<LanDevice[]>("scan_lan", { cidr }),
+  localCidr: () => invoke<string | null>("local_cidr"),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

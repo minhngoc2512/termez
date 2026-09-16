@@ -4,6 +4,7 @@ mod conn;
 mod db;
 mod keychain;
 mod keys;
+mod scan;
 mod sftp;
 mod ssh;
 mod sync;
@@ -80,6 +81,10 @@ pub fn run() {
             commands::applock_disable,
             commands::applock_verify,
             commands::applock_set_timeout,
+            commands::scan_hosts,
+            commands::scan_ports,
+            commands::scan_lan,
+            commands::local_cidr,
             commands::import_kdbx,
             commands::sync_get_config,
             commands::sync_save_config,

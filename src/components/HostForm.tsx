@@ -26,6 +26,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 interface Props {
   open: boolean;
   host?: Host | null;
+  preset?: { address: string; port: number } | null;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }
@@ -41,7 +42,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function HostForm({ open, host, onOpenChange, onSaved }: Props) {
+export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
   const groups = useStore((s) => s.groups);
   const keys = useStore((s) => s.keys);
   const allHosts = useStore((s) => s.hosts);
@@ -73,9 +74,9 @@ export function HostForm({ open, host, onOpenChange, onSaved }: Props) {
   // Nạp giá trị khi mở dialog.
   useEffect(() => {
     if (!open) return;
-    setLabel(host?.label ?? "");
-    setAddress(host?.address ?? "");
-    setPort(host?.port ?? 22);
+    setLabel(host?.label ?? (preset ? preset.address : ""));
+    setAddress(host?.address ?? preset?.address ?? "");
+    setPort(host?.port ?? preset?.port ?? 22);
     setUsername(host?.username ?? "root");
     setAuthType(host?.auth_type ?? "password");
     setPassword("");
@@ -94,7 +95,7 @@ export function HostForm({ open, host, onOpenChange, onSaved }: Props) {
     setJumpHostId(host?.jump_host_id ?? null);
     setError(null);
     setShowAdv(false);
-  }, [open, host]);
+  }, [open, host, preset]);
 
   async function createGroupInline() {
     const name = await promptDialog({ title: "New group", placeholder: "Group name", confirmText: "Create" });

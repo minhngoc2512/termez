@@ -6,7 +6,7 @@ import {
   DockviewApi,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Home, Code2, ShieldCheck, Radar } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Home, Code2, ShieldCheck } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
@@ -19,6 +19,7 @@ import { SftpView } from "./components/SftpView";
 import { ForwardingView } from "./components/ForwardingView";
 import { VaultView } from "./components/VaultView";
 import { KeychainPage, SettingsPage, Placeholder } from "./components/SectionPages";
+import { NetworkScanPage } from "./components/NetworkScanPage";
 import { PanelTab } from "./components/PanelTab";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
@@ -63,6 +64,7 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Host | null>(null);
+  const [preset, setPreset] = useState<{ address: string; port: number } | null>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
@@ -152,10 +154,17 @@ export default function App() {
 
   function openAdd() {
     setEditing(null);
+    setPreset(null);
     setFormOpen(true);
   }
   function openEdit(h: Host) {
     setEditing(h);
+    setPreset(null);
+    setFormOpen(true);
+  }
+  function addHostFromScan(address: string, port: number) {
+    setEditing(null);
+    setPreset({ address, port });
     setFormOpen(true);
   }
 
@@ -243,15 +252,13 @@ export default function App() {
               {section === "known" && (
                 <Placeholder icon={ShieldCheck} title="Known Hosts" note="Host key management is coming soon." />
               )}
-              {section === "scan" && (
-                <Placeholder icon={Radar} title="Network Scan" note="Network/port scanning is planned." />
-              )}
+              {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
             </div>
           )}
         </main>
       </div>
 
-      <HostForm open={formOpen} host={editing} onOpenChange={setFormOpen} onSaved={refresh} />
+      <HostForm open={formOpen} host={editing} preset={preset} onOpenChange={setFormOpen} onSaved={refresh} />
       <KeyManager open={keysOpen} onOpenChange={setKeysOpen} />
       <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
       <DialogHost />
