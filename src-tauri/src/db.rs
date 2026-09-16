@@ -615,6 +615,18 @@ pub async fn create_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Resul
     Ok(())
 }
 
+/// Id của mọi entry trong thư mục `path` và các thư mục con (để dọn keychain khi xóa).
+pub async fn entry_ids_in_folder(pool: &SqlitePool, path: &str) -> anyhow::Result<Vec<String>> {
+    let like = format!("{path}/%");
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT id FROM vault_entries WHERE folder = ? OR folder LIKE ?")
+            .bind(path)
+            .bind(&like)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|(x,)| x).collect())
+}
+
 /// Xóa một thư mục và mọi thư mục con (path bắt đầu bằng "folder/").
 pub async fn delete_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Result<()> {
     let prefix = format!("{path}/%");

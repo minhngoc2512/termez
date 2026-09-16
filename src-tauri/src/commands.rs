@@ -450,6 +450,13 @@ pub async fn create_vault_folder(app: AppHandle, state: State<'_, AppState>, pat
 
 #[tauri::command]
 pub async fn delete_vault_folder(app: AppHandle, state: State<'_, AppState>, path: String) -> R<()> {
+    // Xóa mọi entry trong thư mục (và thư mục con) + secret keychain, rồi xóa thư mục.
+    let ids = db::entry_ids_in_folder(&state.db, &path).await.map_err(e)?;
+    for id in &ids {
+        keychain::delete_secret(&keychain::entry_password(id)).ok();
+        keychain::delete_secret(&keychain::entry_totp(id)).ok();
+        db::delete_entry(&state.db, id).await.map_err(e)?;
+    }
     db::delete_vault_folder(&state.db, &path).await.map_err(e)?;
     schedule_autosync(app, &state);
     Ok(())
