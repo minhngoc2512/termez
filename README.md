@@ -1,42 +1,108 @@
 # ⌘ Termez
 
-A fast, native-feeling **SSH / SFTP manager** for Linux — a Termius-style desktop client built with **Tauri (Rust)** + **React**. Manage a fleet of servers, split terminals, browse and move files, tunnel ports, and back everything up to your own GitHub repo with end-to-end encryption.
+A fast, native-feeling **SSH / SFTP manager** for Linux — a Termius-style desktop
+client built with **Tauri (Rust)** + **React**. Manage a fleet of servers, split
+terminals, browse and move files, keep passwords and cloud storage, watch hosts
+live, and back everything up to your own GitHub repo with end-to-end encryption.
 
 > **Term** (terminal) + **Ez** (easy).
+
+---
+
+## Install (Linux)
+
+### Via apt — recommended (auto-updates with `apt upgrade`)
+
+```bash
+curl -fsSL https://minhngoc2512.github.io/termez/apt/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/termez.gpg] https://minhngoc2512.github.io/termez/apt ./" | sudo tee /etc/apt/sources.list.d/termez.list
+sudo apt update && sudo apt install termez
+```
+
+### One-off `.deb`
+
+Download the latest `Termez_*_amd64.deb` from
+[**Releases**](https://github.com/minhngoc2512/termez/releases/latest), then:
+
+```bash
+sudo apt install ./Termez_*_amd64.deb
+```
+
+### Portable `.AppImage`
+
+Download `Termez_*_amd64.AppImage`, then:
+
+```bash
+chmod +x Termez_*_amd64.AppImage && ./Termez_*_amd64.AppImage
+```
+
+An `.rpm` is also attached to each release. Maintainer packaging steps live in
+[PACKAGING.md](PACKAGING.md).
 
 ---
 
 ## Features
 
 **Terminals**
-- SSH terminal with real PTY (via [`russh`](https://crates.io/crates/russh), `ring` backend)
-- **Split view** (dockview): drag a tab onto any edge to tile panes; drag to reorder/merge
+- SSH terminal with a real PTY (via [`russh`](https://crates.io/crates/russh), `ring` backend)
+- **Split view** (dockview): drag a tab to any edge to tile panes; drag to reorder/merge
 - **Broadcast**: type once, send to every open pane
-- Per-host **terminal theme & font size**, `Ctrl+Shift+C` / `Ctrl+Shift+V` copy-paste
-- Hover a tab to see the host IP with a one-click copy button
+- Per-host **terminal theme & font size**; hover a tab to copy the host IP
 
 **Host management**
-- Hosts organized into **collapsible groups** with counts
-- Home dashboard of Groups + Hosts cards; quick **search** by name / IP in the header
-- Password or **SSH key** auth (generate ed25519/rsa, or import an existing key)
-- Advanced per host: startup snippet, keep-alive, proxy (**SOCKS5 / HTTP CONNECT**), and **jump host (ProxyJump, multi-hop)**
+- Hosts in **collapsible groups**; home dashboard + header **search** by name / IP
+- Password or **SSH key** auth (generate ed25519 / rsa, or import a key)
+- Per host: startup snippet, keep-alive, **SOCKS5 / HTTP CONNECT** proxy, and
+  **jump host (ProxyJump, multi-hop)**
+- **ProxyCommand** support + **`~/.ssh/config` import** — reach hosts behind
+  Cloudflare Tunnel and other stdio proxies
+- **Host key verification** (TOFU) with a **Known Hosts** view
+
+**Passwords** (KeePassXC-style vault)
+- Folder tree + entry table + detail pane; nested folders
+- Import KeePass **`.kdbx`** files (folder structure preserved)
+- Masked password field with reveal; `Ctrl+C` copy password / `Ctrl+U` copy URL
+  with a **10-second auto-clearing clipboard** countdown
 
 **SFTP**
-- Dual-pane file browser; **each pane picks any endpoint** (Local or any server)
-- Transfer **Local ↔ Server** and **Server ↔ Server** (relayed), with a progress queue
-- **Drag & drop** files between panes; mkdir / delete
+- Dual-pane browser; **each pane picks any endpoint** (Local or any server)
+- Transfer **Local ↔ Server** and **Server ↔ Server**, with a progress queue
+- **Drag & drop** between panes; mkdir / delete
+
+**Storage** (S3 / R2 / GCS / MinIO)
+- Browse buckets, **upload / download / delete**, copy public URL
+- Copy / cut / paste, new folder, multi-select, right-click menu
+- **Drag-drop upload** with progress, speed and conflict resolution
+- **Bucket-to-bucket transfer** in an SFTP-style dual pane (any provider to any)
 
 **Port forwarding**
 - **Local (-L)** and **Dynamic / SOCKS5 (-D)** tunnels, start/stop with live status
 
-**Cloud sync (optional)**
-- Back up hosts, keys, tunnels **and secrets** to a **private GitHub repo**
-- **End-to-end encrypted** (Argon2id + XChaCha20-Poly1305) with a master password — GitHub only ever stores ciphertext
-- Manual **Backup / Restore**, or **silent auto-sync** on every change
+**Monitoring**
+- Open a **per-host Monitor tab**: live CPU / RAM / disk / network charts
 
-**Security**
-- Secrets (passwords, private keys, passphrases, proxy/GitHub tokens) live in the **OS keychain** (Secret Service), never in plaintext in the database
-- Zero-knowledge cloud vault: forget the master password → the backup cannot be recovered
+**Network scan**
+- **LAN device discovery** (IP / MAC / vendor / hostname), host discovery and
+  **port scan**, with a filter box — add a discovered host in one click
+
+**Cloudflare DNS**
+- Manage DNS records through the Cloudflare API (credentials stay local, never synced)
+
+**Cloud sync** (optional)
+- Back up hosts, keys, tunnels, **passwords and storage connections** to a
+  **private GitHub repo**
+- **End-to-end encrypted** (Argon2id + XChaCha20-Poly1305) with a master password
+  — GitHub only ever stores ciphertext
+- **Auto-pull** on startup and periodically, with **conflict resolution**
+
+**Security & app lock**
+- Secrets live in the **OS keychain** (Secret Service), never plaintext in the DB
+- **App Lock**: master password to open the app + **idle auto-lock**
+- **Two-factor (TOTP)** with a configurable **re-authentication interval**
+
+**Settings & updates**
+- App theme **light / dark / system**, terminal theme & font size
+- **About** panel with version and a **GitHub-release update check**
 
 ---
 
@@ -46,10 +112,10 @@ A fast, native-feeling **SSH / SFTP manager** for Linux — a Termius-style desk
 |-------|------|
 | Shell | Tauri 2 (Rust), custom titlebar |
 | SSH / SFTP | `russh` (ring), `russh-sftp` |
-| Crypto | `argon2`, `chacha20poly1305` |
-| Proxy / tunnels | `tokio-socks`, `async-http-proxy`, direct-tcpip channels |
-| Storage | SQLite (`sqlx`), OS keychain (`keyring`) |
-| Cloud | GitHub Contents API (`reqwest`, rustls) |
+| Crypto | `argon2`, `chacha20poly1305`, `totp-rs` (2FA) |
+| Proxy / tunnels | `tokio-socks`, `async-http-proxy`, ProxyCommand, direct-tcpip |
+| Storage / cloud | S3 SigV4 (`reqwest`, `hmac`, `sha2`), GitHub Contents API |
+| Local storage | SQLite (`sqlx`), OS keychain (`keyring`) |
 | Frontend | React 19, TypeScript, Vite, Tailwind v4, shadcn/ui, lucide, xterm.js, dockview |
 
 ---
@@ -79,16 +145,18 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
-Bundles are produced under `src-tauri/target/release/bundle/`:
-- `.deb` → `bundle/deb/`
-- `.AppImage` → `bundle/appimage/`
+Bundles land under `src-tauri/target/release/bundle/` (`deb/`, `appimage/`, `rpm/`).
 
 ---
 
 ## Notes
 
-- The keychain namespace is a stable internal string kept across renames so stored secrets are never orphaned.
-- VPN (OpenVPN) is intentionally **out of scope** — it requires root and changes system-wide routing; use a **jump host** or a **SOCKS tunnel** to reach private servers from userspace instead.
+- The keychain namespace is a stable internal string kept across renames so stored
+  secrets are never orphaned.
+- On some Linux GPUs/drivers WebKitGTK's DMABUF renderer shows a black window; the
+  app disables it at startup (`WEBKIT_DISABLE_DMABUF_RENDERER`) so it renders everywhere.
+- VPN (OpenVPN) is intentionally **out of scope** — it needs root and changes
+  system-wide routing; use a **jump host** or a **SOCKS tunnel** instead.
 
 ---
 
