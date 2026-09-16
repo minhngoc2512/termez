@@ -352,6 +352,10 @@ export const api = {
     invoke<number>("s3_upload_run", { bucketId, prefix, paths, mode }),
   s3CreateFolder: (bucketId: string, key: string) =>
     invoke<void>("s3_create_folder", { bucketId, key }),
+  s3Transfer: (srcBucketId: string, srcKey: string, dstBucketId: string, dstKey: string) =>
+    invoke<void>("s3_transfer", { srcBucketId, srcKey, dstBucketId, dstKey }),
+  s3TransferPrefix: (srcBucketId: string, srcPrefix: string, dstBucketId: string, dstPrefix: string) =>
+    invoke<number>("s3_transfer_prefix", { srcBucketId, srcPrefix, dstBucketId, dstPrefix }),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

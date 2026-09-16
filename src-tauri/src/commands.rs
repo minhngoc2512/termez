@@ -1193,6 +1193,65 @@ pub async fn s3_copy_prefix(
     Ok(count)
 }
 
+/// Chuyển 1 object giữa 2 bucket qua file tạm (tải nguồn → đẩy đích). Chạy được mọi cặp provider.
+async fn transfer_one(
+    src: &crate::s3::S3,
+    dst: &crate::s3::S3,
+    src_key: &str,
+    dst_key: &str,
+) -> anyhow::Result<()> {
+    let tmp = std::env::temp_dir().join(format!("termez-xfer-{}", uuid::Uuid::new_v4()));
+    let tmp_s = tmp.to_string_lossy().to_string();
+    let res = async {
+        src.get_to_file(src_key, &tmp_s).await?;
+        dst.put_file(dst_key, &tmp_s).await
+    }
+    .await;
+    let _ = std::fs::remove_file(&tmp);
+    res
+}
+
+#[tauri::command]
+pub async fn s3_transfer(
+    state: State<'_, AppState>,
+    src_bucket_id: String,
+    src_key: String,
+    dst_bucket_id: String,
+    dst_key: String,
+) -> R<()> {
+    let src = s3_for(&state.db, &src_bucket_id).await?;
+    let dst = s3_for(&state.db, &dst_bucket_id).await?;
+    transfer_one(&src, &dst, &src_key, &dst_key).await.map_err(e)
+}
+
+/// Chuyển cả "thư mục" giữa 2 bucket. Phát event "s3:xfer" tiến trình theo từng file.
+#[tauri::command]
+pub async fn s3_transfer_prefix(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    src_bucket_id: String,
+    src_prefix: String,
+    dst_bucket_id: String,
+    dst_prefix: String,
+) -> R<u32> {
+    let src = s3_for(&state.db, &src_bucket_id).await?;
+    let dst = s3_for(&state.db, &dst_bucket_id).await?;
+    let keys = src.list_all_keys(&src_prefix).await.map_err(e)?;
+    let total = keys.len();
+    let mut count = 0u32;
+    for k in keys {
+        let dst_key = format!("{}{}", dst_prefix, &k[src_prefix.len()..]);
+        transfer_one(&src, &dst, &k, &dst_key).await.map_err(e)?;
+        count += 1;
+        let _ = app.emit(
+            "s3:xfer",
+            serde_json::json!({ "done": count, "total": total, "file": k, "fin": false }),
+        );
+    }
+    let _ = app.emit("s3:xfer", serde_json::json!({ "done": total, "total": total, "file": "", "fin": true }));
+    Ok(count)
+}
+
 #[derive(serde::Deserialize)]
 struct ImportedEntry {
     title: String,

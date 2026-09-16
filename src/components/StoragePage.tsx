@@ -5,8 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import {
   HardDrive, Folder, File as FileIcon, Upload, RefreshCw, Trash2, Link2, Copy,
   ChevronRight, Home, Loader2, Plus, Settings, Check, Pencil, ArrowLeft, Database,
-  Scissors, ClipboardPaste, X, Download, FolderOpen, UploadCloud, FolderPlus,
+  Scissors, ClipboardPaste, X, Download, FolderOpen, UploadCloud, FolderPlus, ArrowLeftRight,
 } from "lucide-react";
+import { StorageTransfer } from "./StorageTransfer";
 import { api, S3Listing, StorageBucket, StorageBucketInput } from "../lib/ipc";
 import { confirmDialog, alertDialog, promptDialog } from "../lib/dialogs";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,7 @@ function basename(p: string): string {
 export function StoragePage() {
   const [buckets, setBuckets] = useState<StorageBucket[]>([]);
   const [bucketId, setBucketId] = useState("");
-  const [view, setView] = useState<"list" | "browse">("list");
+  const [view, setView] = useState<"list" | "browse" | "transfer">("list");
   const [showConfig, setShowConfig] = useState(false);
   const [editing, setEditing] = useState<StorageBucket | null>(null);
 
@@ -286,6 +287,10 @@ export function StoragePage() {
     );
   }
 
+  if (view === "transfer") {
+    return <StorageTransfer buckets={buckets} onBack={() => setView("list")} />;
+  }
+
   if (view === "list") {
     return (
       <div className="flex h-full flex-col bg-background">
@@ -293,7 +298,12 @@ export function StoragePage() {
           <HardDrive className="size-4 text-primary" />
           <h1 className="text-base font-semibold">Storage</h1>
           <span className="text-sm text-muted-foreground">Buckets</span>
-          <Button className="ml-auto" size="sm" onClick={() => { setEditing(null); setShowConfig(true); }}>
+          {buckets.length > 0 && (
+            <Button className="ml-auto" variant="outline" size="sm" onClick={() => setView("transfer")}>
+              <ArrowLeftRight className="size-4" /> Transfer
+            </Button>
+          )}
+          <Button className={buckets.length > 0 ? "" : "ml-auto"} size="sm" onClick={() => { setEditing(null); setShowConfig(true); }}>
             <Plus className="size-4" /> New connection
           </Button>
         </div>

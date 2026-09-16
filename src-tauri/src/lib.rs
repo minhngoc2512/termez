@@ -116,6 +116,8 @@ pub fn run() {
             commands::s3_upload_plan,
             commands::s3_upload_run,
             commands::s3_create_folder,
+            commands::s3_transfer,
+            commands::s3_transfer_prefix,
             commands::known_hosts_list,
             commands::known_hosts_add,
             commands::known_hosts_delete,
