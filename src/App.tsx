@@ -20,6 +20,7 @@ import { ForwardingView } from "./components/ForwardingView";
 import { VaultView } from "./components/VaultView";
 import { KeychainPage, SettingsPage, Placeholder } from "./components/SectionPages";
 import { NetworkScanPage } from "./components/NetworkScanPage";
+import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { PanelTab } from "./components/PanelTab";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
@@ -253,6 +254,7 @@ export default function App() {
                 <Placeholder icon={ShieldCheck} title="Known Hosts" note="Host key management is coming soon." />
               )}
               {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
+              {section === "dns" && <CloudflareDnsPage />}
             </div>
           )}
         </main>

@@ -1,4 +1,5 @@
 mod applock;
+mod cloudflare;
 mod commands;
 mod conn;
 mod db;
@@ -85,6 +86,15 @@ pub fn run() {
             commands::scan_ports,
             commands::scan_lan,
             commands::local_cidr,
+            commands::cf_get_config,
+            commands::cf_save_config,
+            commands::cf_clear_config,
+            commands::cf_verify,
+            commands::cf_list_zones,
+            commands::cf_list_records,
+            commands::cf_create_record,
+            commands::cf_update_record,
+            commands::cf_delete_record,
             commands::import_kdbx,
             commands::sync_get_config,
             commands::sync_save_config,

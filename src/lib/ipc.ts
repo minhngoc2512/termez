@@ -153,6 +153,37 @@ export interface LanDevice {
   is_self: boolean;
 }
 
+export interface CfConfig {
+  api_url: string;
+  account_id: string;
+  has_token: boolean;
+}
+export interface CfZone {
+  id: string;
+  name: string;
+  status: string;
+}
+export interface CfRecord {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
+  proxiable: boolean;
+  priority: number | null;
+  comment: string | null;
+}
+export interface CfInput {
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
+  priority?: number | null;
+  comment?: string | null;
+}
+
 // Tauri tự chuyển camelCase (JS) → snake_case (tham số Rust).
 export const api = {
   getGroups: () => invoke<Group[]>("get_groups"),
@@ -217,6 +248,20 @@ export const api = {
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),
   scanLan: (cidr: string) => invoke<LanDevice[]>("scan_lan", { cidr }),
   localCidr: () => invoke<string | null>("local_cidr"),
+
+  cfGetConfig: () => invoke<CfConfig>("cf_get_config"),
+  cfSaveConfig: (apiUrl: string, accountId: string, token: string | null) =>
+    invoke<void>("cf_save_config", { apiUrl, accountId, token }),
+  cfClearConfig: () => invoke<void>("cf_clear_config"),
+  cfVerify: () => invoke<void>("cf_verify"),
+  cfListZones: () => invoke<CfZone[]>("cf_list_zones"),
+  cfListRecords: (zoneId: string) => invoke<CfRecord[]>("cf_list_records", { zoneId }),
+  cfCreateRecord: (zoneId: string, input: CfInput) =>
+    invoke<CfRecord>("cf_create_record", { zoneId, input }),
+  cfUpdateRecord: (zoneId: string, id: string, input: CfInput) =>
+    invoke<CfRecord>("cf_update_record", { zoneId, id, input }),
+  cfDeleteRecord: (zoneId: string, id: string) =>
+    invoke<void>("cf_delete_record", { zoneId, id }),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

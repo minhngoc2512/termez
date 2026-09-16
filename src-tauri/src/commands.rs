@@ -567,6 +567,103 @@ pub async fn local_cidr() -> R<Option<String>> {
     Ok(crate::scan::local_cidr())
 }
 
+// ----- Cloudflare DNS -----
+
+const CF_TOKEN: &str = "cf-token";
+const CF_URL: &str = "cf-url";
+const CF_ACCOUNT: &str = "cf-account";
+
+#[derive(serde::Serialize)]
+pub struct CfConfig {
+    api_url: String,
+    account_id: String,
+    has_token: bool,
+}
+
+fn cf_client() -> R<crate::cloudflare::CfClient> {
+    let token = keychain::get_secret(CF_TOKEN)
+        .map_err(e)?
+        .ok_or_else(|| "Cloudflare API token is not set".to_string())?;
+    let url = keychain::get_secret(CF_URL)
+        .map_err(e)?
+        .unwrap_or_else(|| crate::cloudflare::DEFAULT_BASE.to_string());
+    Ok(crate::cloudflare::CfClient::new(url, token))
+}
+
+#[tauri::command]
+pub async fn cf_get_config() -> R<CfConfig> {
+    Ok(CfConfig {
+        api_url: keychain::get_secret(CF_URL)
+            .map_err(e)?
+            .unwrap_or_else(|| crate::cloudflare::DEFAULT_BASE.to_string()),
+        account_id: keychain::get_secret(CF_ACCOUNT).map_err(e)?.unwrap_or_default(),
+        has_token: keychain::get_secret(CF_TOKEN).map_err(e)?.is_some(),
+    })
+}
+
+#[tauri::command]
+pub async fn cf_save_config(api_url: String, account_id: String, token: Option<String>) -> R<()> {
+    let url = if api_url.trim().is_empty() {
+        crate::cloudflare::DEFAULT_BASE.to_string()
+    } else {
+        api_url.trim().to_string()
+    };
+    keychain::set_secret(CF_URL, &url).map_err(e)?;
+    keychain::set_secret(CF_ACCOUNT, account_id.trim()).map_err(e)?;
+    if let Some(t) = token {
+        if !t.trim().is_empty() {
+            keychain::set_secret(CF_TOKEN, t.trim()).map_err(e)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cf_clear_config() -> R<()> {
+    keychain::delete_secret(CF_TOKEN).ok();
+    keychain::delete_secret(CF_URL).ok();
+    keychain::delete_secret(CF_ACCOUNT).ok();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cf_verify() -> R<()> {
+    cf_client()?.verify().await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn cf_list_zones() -> R<Vec<crate::cloudflare::Zone>> {
+    let account = keychain::get_secret(CF_ACCOUNT).map_err(e)?;
+    cf_client()?.list_zones(account.as_deref()).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn cf_list_records(zone_id: String) -> R<Vec<crate::cloudflare::DnsRecord>> {
+    cf_client()?.list_records(&zone_id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn cf_create_record(
+    zone_id: String,
+    input: crate::cloudflare::DnsInput,
+) -> R<crate::cloudflare::DnsRecord> {
+    cf_client()?.create_record(&zone_id, &input).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn cf_update_record(
+    zone_id: String,
+    id: String,
+    input: crate::cloudflare::DnsInput,
+) -> R<crate::cloudflare::DnsRecord> {
+    cf_client()?.update_record(&zone_id, &id, &input).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn cf_delete_record(zone_id: String, id: String) -> R<()> {
+    cf_client()?.delete_record(&zone_id, &id).await.map_err(e)
+}
+
 #[derive(serde::Deserialize)]
 struct ImportedEntry {
     title: String,

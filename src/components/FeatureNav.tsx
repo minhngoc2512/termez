@@ -1,5 +1,5 @@
 import {
-  Server, Key, Cable, KeyRound, Code2, ShieldCheck, Radar, Settings, Cloud,
+  Server, Key, Cable, KeyRound, Code2, ShieldCheck, Radar, Globe, Settings, Cloud,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "../store";
@@ -12,6 +12,7 @@ export type Section =
   | "snippets"
   | "known"
   | "scan"
+  | "dns"
   | "settings";
 
 interface Item {
@@ -28,6 +29,7 @@ const TOP: Item[] = [
   { id: "snippets", label: "Snippets", icon: Code2 },
   { id: "known", label: "Known Hosts", icon: ShieldCheck },
   { id: "scan", label: "Network Scan", icon: Radar },
+  { id: "dns", label: "Cloudflare DNS", icon: Globe },
 ];
 
 interface Props {
