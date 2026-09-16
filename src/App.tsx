@@ -77,10 +77,25 @@ export default function App() {
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
+  // Nếu cửa sổ được mở bằng "Duplicate in a new window" → tự mở terminal host này.
+  const dupRef = useRef<string | null>(
+    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("dup") : null
+  );
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Mở host đang chờ (từ tham số ?dup=) khi đã sẵn sàng: hết boot, mở khóa,
+  // dockview đã tạo, và danh sách host đã nạp.
+  function maybeOpenDup() {
+    const id = dupRef.current;
+    if (!id || !apiRef.current) return;
+    const host = useStore.getState().hosts.find((h) => h.id === id);
+    if (!host) return;
+    dupRef.current = null;
+    openHost(host);
+  }
 
   // Theme "system": cập nhật khi OS đổi sáng/tối.
   useEffect(() => {
@@ -144,12 +159,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Host list nạp xong sau khi dockview sẵn sàng → thử mở host đang chờ (?dup=).
+  const hosts = useStore((s) => s.hosts);
+  useEffect(() => {
+    if (!locked && !booting) maybeOpenDup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hosts, locked, booting]);
+
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
     event.api.onDidLayoutChange(() => {
       // Đóng terminal cuối cùng → quay lại màn Home.
       if (event.api.panels.length === 0) setShowHome(true);
     });
+    maybeOpenDup();
   }
 
   function selectSection(s: Section) {

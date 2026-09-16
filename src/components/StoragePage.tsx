@@ -10,6 +10,7 @@ import {
 import { StorageTransfer } from "./StorageTransfer";
 import { api, S3Listing, StorageBucket, StorageBucketInput } from "../lib/ipc";
 import { confirmDialog, alertDialog, promptDialog } from "../lib/dialogs";
+import { copyText } from "../lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -216,7 +217,8 @@ export function StoragePage() {
 
   async function copyUrl(key: string) {
     try {
-      navigator.clipboard?.writeText(await api.s3Presign(bucketId, key, 3600));
+      const url = await api.s3Presign(bucketId, key, 3600);
+      await copyText(url);
       setCopied(key);
       window.setTimeout(() => setCopied((c) => (c === key ? null : c)), 1400);
     } catch (e) {

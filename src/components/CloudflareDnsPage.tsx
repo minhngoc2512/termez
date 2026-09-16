@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import {
   Globe, Loader2, Plus, Pencil, Trash2, RefreshCw, Settings, Cloud, CloudOff, Search, Copy, Check,
 } from "lucide-react";
@@ -386,7 +387,7 @@ function CopyBtn({ value }: { value: string }) {
       title="Copy"
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard?.writeText(value);
+        copyText(value);
         setDone(true);
         window.setTimeout(() => setDone(false), 1200);
       }}

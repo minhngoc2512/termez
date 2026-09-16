@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { copyText } from "../lib/clipboard";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -56,7 +57,7 @@ export function TerminalView({ hostId, themeName, fontSize }: Props) {
       if (e.type === "keydown" && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") {
         const sel = term.getSelection();
         if (sel) {
-          navigator.clipboard.writeText(sel).catch(() => {});
+          copyText(sel);
           return false;
         }
       }

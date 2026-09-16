@@ -120,3 +120,30 @@
     -webkit-user-select: text;
   }
 }
+
+/* Tab terminal bo tròn kiểu Terminus (dockview) */
+.dockview-theme-abyss {
+  --dv-tabs-and-actions-container-height: 40px;
+  --dv-tabs-and-actions-container-background-color: var(--sidebar);
+  --dv-tab-border-radius: 9px;
+  --dv-tab-margin-inline: 3px;
+  --dv-tab-margin-block: 5px;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--card);
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--card);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+}
+.dockview-theme-abyss .dv-tab {
+  border: 1px solid transparent;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.dockview-theme-abyss .dv-tab.dv-active-tab {
+  border-color: var(--border);
+}
+.dockview-theme-abyss .dv-tab.dv-inactive-tab:hover {
+  background-color: var(--accent);
+}

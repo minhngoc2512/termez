@@ -1,3 +1,5 @@
+import { copyText, readClipboard } from "./clipboard";
+
 export interface GenOpts {
   length: number;
   upper: boolean;
@@ -52,14 +54,10 @@ export function strength(pw: string): { score: number; label: string } {
  * người dùng copy sau đó.
  */
 export function copyClearing(text: string, ms = 10000) {
-  navigator.clipboard.writeText(text).catch(() => {});
+  copyText(text);
   window.setTimeout(async () => {
-    try {
-      const cur = await navigator.clipboard.readText();
-      if (cur !== text) return; // người dùng đã copy thứ khác → để yên
-    } catch {
-      /* không đọc được clipboard → cứ xóa cho an toàn */
-    }
-    navigator.clipboard.writeText("").catch(() => {});
+    const cur = await readClipboard();
+    if (cur && cur !== text) return; // người dùng đã copy thứ khác → để yên
+    copyText("");
   }, ms);
 }

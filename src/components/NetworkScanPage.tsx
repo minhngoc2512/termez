@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { Radar, Search, Loader2, Server, Copy, Plus, ScanLine, Router, Laptop } from "lucide-react";
 import { api, LanDevice } from "../lib/ipc";
 import { alertDialog } from "../lib/dialogs";
@@ -171,7 +172,7 @@ export function NetworkScanPage({ onAddHost }: { onAddHost: (address: string, po
                           </div>
                         </div>
                         <RowBtn title="Port scan this device" onClick={() => toPortScan(d.ip)}><ScanLine className="size-4" /></RowBtn>
-                        <RowBtn title="Copy IP" onClick={() => navigator.clipboard?.writeText(d.ip)}><Copy className="size-4" /></RowBtn>
+                        <RowBtn title="Copy IP" onClick={() => copyText(d.ip)}><Copy className="size-4" /></RowBtn>
                         <Button size="sm" variant="outline" onClick={() => onAddHost(d.ip, 22)}>
                           <Plus className="size-4" /> Add host
                         </Button>
@@ -213,7 +214,7 @@ export function NetworkScanPage({ onAddHost }: { onAddHost: (address: string, po
                         <Server className="size-4 shrink-0 text-primary" />
                         <span className="flex-1 font-mono text-sm">{ip}</span>
                         <RowBtn title="Port scan this host" onClick={() => toPortScan(ip)}><ScanLine className="size-4" /></RowBtn>
-                        <RowBtn title="Copy IP" onClick={() => navigator.clipboard?.writeText(ip)}><Copy className="size-4" /></RowBtn>
+                        <RowBtn title="Copy IP" onClick={() => copyText(ip)}><Copy className="size-4" /></RowBtn>
                         <Button size="sm" variant="outline" onClick={() => onAddHost(ip, discoverPort)}>
                           <Plus className="size-4" /> Add host
                         </Button>

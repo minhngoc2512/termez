@@ -1,14 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IDockviewPanelHeaderProps } from "dockview-react";
-import { X, Copy, Check } from "lucide-react";
+import { X, Copy, Check, CopyPlus, ExternalLink } from "lucide-react";
 import { useStore } from "../store";
+import { copyText } from "../lib/clipboard";
+
+type TermParams = { hostId?: string; theme?: string | null; fontSize?: number | null };
 
 /**
  * Tab tùy chỉnh cho dockview: hiện tên panel; hover vào tab (nếu là host)
- * bật popup thông tin IP + nút copy IP.
+ * bật popup thông tin IP + nút copy IP. Chuột phải mở menu Duplicate.
  */
-export function PanelTab(props: IDockviewPanelHeaderProps<{ hostId?: string }>) {
+export function PanelTab(props: IDockviewPanelHeaderProps<TermParams>) {
   const hosts = useStore((s) => s.hosts);
   const hostId = props.params?.hostId;
   const host = hostId ? hosts.find((h) => h.id === hostId) : undefined;
@@ -17,6 +20,7 @@ export function PanelTab(props: IDockviewPanelHeaderProps<{ hostId?: string }>) 
   const timer = useRef<number | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   function open() {
     if (timer.current) window.clearTimeout(timer.current);
@@ -29,16 +33,61 @@ export function PanelTab(props: IDockviewPanelHeaderProps<{ hostId?: string }>) 
     timer.current = window.setTimeout(() => setPos(null), 160);
   }
 
+  // Đóng menu khi click/nhấn Esc ra ngoài.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("mousedown", close); window.removeEventListener("keydown", onKey); };
+  }, [menu]);
+
+  function onContextMenu(e: React.MouseEvent) {
+    if (!hostId) return; // chỉ tab terminal của host mới có menu
+    e.preventDefault();
+    e.stopPropagation();
+    setPos(null);
+    setMenu({ x: e.clientX, y: e.clientY });
+  }
+
+  // Mở thêm một shell của cùng host trong một tab mới (cùng cửa sổ).
+  function duplicate() {
+    setMenu(null);
+    props.containerApi.addPanel({
+      id: crypto.randomUUID(),
+      component: "terminal",
+      tabComponent: "info",
+      title: props.api.title,
+      params: { ...(props.params || {}) },
+    });
+  }
+
+  // Mở một cửa sổ mới, tự khởi tạo terminal cho host này.
+  async function duplicateWindow() {
+    setMenu(null);
+    if (!hostId) return;
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      new WebviewWindow(`term-${crypto.randomUUID().slice(0, 8)}`, {
+        url: `index.html?dup=${encodeURIComponent(hostId)}`,
+        title: props.api.title || "Termez",
+        width: 1000,
+        height: 680,
+        decorations: false,
+      });
+    } catch {
+      /* ngoài Tauri (dev web) — bỏ qua */
+    }
+  }
+
   function copyIp(e: React.MouseEvent) {
     e.stopPropagation();
     if (!host) return;
-    navigator.clipboard
-      .writeText(host.address)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      })
-      .catch(() => {});
+    copyText(host.address).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
   }
 
   return (
@@ -47,6 +96,7 @@ export function PanelTab(props: IDockviewPanelHeaderProps<{ hostId?: string }>) 
       className="flex items-center gap-1.5 px-2"
       onMouseEnter={open}
       onMouseLeave={scheduleClose}
+      onContextMenu={onContextMenu}
     >
       <span className="truncate text-[13px]">{props.api.title}</span>
       <button
@@ -88,6 +138,33 @@ export function PanelTab(props: IDockviewPanelHeaderProps<{ hostId?: string }>) 
           </div>,
           document.body
         )}
+
+      {menu &&
+        createPortal(
+          <div
+            style={{ position: "fixed", left: menu.x, top: menu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="z-[9999] w-56 overflow-hidden rounded-lg border border-slate-600 bg-popover py-1 text-popover-foreground shadow-2xl"
+          >
+            <MenuItem icon={<CopyPlus className="size-4" />} label="Duplicate" onClick={duplicate} />
+            <MenuItem icon={<ExternalLink className="size-4" />} label="Duplicate in a new window" onClick={duplicateWindow} />
+            <div className="my-1 h-px bg-border" />
+            <MenuItem icon={<X className="size-4" />} label="Close" onClick={() => { setMenu(null); props.api.close(); }} />
+          </div>,
+          document.body
+        )}
     </div>
+  );
+}
+
+function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm text-foreground hover:bg-accent"
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      {label}
+    </button>
   );
 }

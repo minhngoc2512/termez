@@ -6,6 +6,7 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/ipc";
 import { confirmDialog, promptDialog, alertDialog } from "../lib/dialogs";
+import { copyText } from "../lib/clipboard";
 import { AppTheme, useStore } from "../store";
 import { TERM_THEMES } from "../lib/themes";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ export function KeychainPage({ onManage }: { onManage: () => void }) {
                 </div>
                 <button
                   title="Copy public key"
-                  onClick={() => navigator.clipboard?.writeText(k.public_key)}
+                  onClick={() => copyText(k.public_key)}
                   className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <Copy className="size-4" />
@@ -543,7 +544,7 @@ function TotpSetupDialog({ onClose, onDone }: { onClose: () => void; onDone: () 
                 <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs">{setup.secret}</code>
                 <button
                   title="Copy key"
-                  onClick={() => navigator.clipboard?.writeText(setup.secret)}
+                  onClick={() => copyText(setup.secret)}
                   className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   <Copy className="size-4" />
