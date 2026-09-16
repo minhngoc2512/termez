@@ -396,6 +396,10 @@ function AppLockCard() {
             <TimeoutRow value={idleMins} onChange={setIdleMins} />
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="size-3.5" />
+            Two-factor (2FA) can be turned on here once App Lock is enabled.
+          </p>
           <div className="flex justify-end">
             <Button size="sm" onClick={enable} disabled={busy || !pw || !pw2}>Enable</Button>
           </div>
