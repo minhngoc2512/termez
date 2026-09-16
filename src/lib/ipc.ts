@@ -155,6 +155,23 @@ export interface LanDevice {
   is_self: boolean;
 }
 
+export interface MonitorDisk {
+  mount: string;
+  device: string;
+  used_kb: number;
+  total_kb: number;
+}
+export interface Metrics {
+  cpu_percent: number;
+  mem_used_kb: number;
+  mem_total_kb: number;
+  load1: number;
+  uptime_secs: number;
+  net_rx_bps: number;
+  net_tx_bps: number;
+  disks: MonitorDisk[];
+}
+
 export interface KnownHost {
   id: string;
   host: string;
@@ -236,6 +253,8 @@ export const api = {
   upsertHost: (input: HostInput) => invoke<Host>("upsert_host", { input }),
   deleteHost: (id: string) => invoke<void>("delete_host", { id }),
   importSshConfig: () => invoke<string>("import_ssh_config"),
+  monitorStart: (hostId: string) => invoke<void>("monitor_start", { hostId }),
+  monitorStop: (hostId: string) => invoke<void>("monitor_stop", { hostId }),
 
   getKeys: () => invoke<SshKey[]>("get_keys"),
   generateKey: (name: string, algorithm: string, passphrase: string | null) =>

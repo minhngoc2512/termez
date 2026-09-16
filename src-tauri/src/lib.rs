@@ -5,6 +5,7 @@ mod conn;
 mod db;
 mod keychain;
 mod keys;
+mod monitor;
 mod s3;
 mod scan;
 mod sftp;
@@ -38,6 +39,7 @@ pub fn run() {
                 tunnels: Arc::new(tunnel::TunnelManager::new()),
                 autosync: std::sync::Mutex::new(None),
                 dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                monitor: Arc::new(monitor::MonitorManager::new()),
             });
             Ok(())
         })
@@ -49,6 +51,8 @@ pub fn run() {
             commands::upsert_host,
             commands::delete_host,
             commands::import_ssh_config,
+            commands::monitor_start,
+            commands::monitor_stop,
             commands::get_keys,
             commands::generate_key,
             commands::import_key,

@@ -23,6 +23,7 @@ pub struct AppState {
     pub autosync: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
     /// Có thay đổi cục bộ chưa đẩy lên remote (để phát hiện conflict).
     pub dirty: Arc<std::sync::atomic::AtomicBool>,
+    pub monitor: Arc<crate::monitor::MonitorManager>,
 }
 
 /// Dựng chuỗi jump host từ `jump_host_id` (đệ quy, có chặn vòng lặp).
@@ -178,6 +179,51 @@ pub async fn upsert_host(app: AppHandle, state: State<'_, AppState>, mut input: 
     }
     schedule_autosync(app, &state);
     Ok(host)
+}
+
+/// Resolve auth/proxy/jump/hostkey rồi mở kết nối SSH tới host (dùng cho monitor).
+async fn resolve_connect(db: &SqlitePool, host: &Host, strict: bool) -> R<crate::conn::Connection> {
+    let auth = resolve_auth(host)?;
+    let proxy = resolve_proxy(host)?;
+    let jump = resolve_jump(db, host, 0).await?;
+    let expected = db::get_known_host(db, &host.address, host.port as u16)
+        .await
+        .map_err(e)?
+        .map(|k| k.fingerprint);
+    crate::conn::connect_authenticated(
+        &host.address,
+        host.port as u16,
+        &host.username,
+        auth,
+        true,
+        proxy,
+        jump,
+        expected,
+        strict,
+        host.proxy_command.clone(),
+    )
+    .await
+    .map_err(|err| {
+        if err.to_string().starts_with("HOSTKEY\t") {
+            "Host key changed — open a terminal to this host to verify it.".to_string()
+        } else {
+            err.to_string()
+        }
+    })
+}
+
+#[tauri::command]
+pub async fn monitor_start(app: AppHandle, state: State<'_, AppState>, host_id: String) -> R<()> {
+    let host = db::get_host(&state.db, &host_id).await.map_err(e)?;
+    let conn = resolve_connect(&state.db, &host, false).await?;
+    state.monitor.start(app, host_id, Arc::new(conn)).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn monitor_stop(state: State<'_, AppState>, host_id: String) -> R<()> {
+    state.monitor.stop(&host_id).await;
+    Ok(())
 }
 
 #[tauri::command]

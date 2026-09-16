@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Server, Folder, Plus, Pencil, Trash2, Search, FolderPlus, FileDown } from "lucide-react";
+import { Server, Folder, Plus, Pencil, Trash2, Search, FolderPlus, FileDown, Activity } from "lucide-react";
 import { api, Host } from "../lib/ipc";
 import { confirmDialog, promptDialog, alertDialog } from "../lib/dialogs";
 import { useStore } from "../store";
@@ -10,9 +10,10 @@ interface Props {
   onOpen: (h: Host) => void;
   onAdd: () => void;
   onEdit: (h: Host) => void;
+  onMonitor: (h: Host) => void;
 }
 
-export function HostsPage({ onOpen, onAdd, onEdit }: Props) {
+export function HostsPage({ onOpen, onAdd, onEdit, onMonitor }: Props) {
   const hosts = useStore((s) => s.hosts);
   const groups = useStore((s) => s.groups);
   const refresh = useStore((s) => s.refresh);
@@ -129,6 +130,9 @@ export function HostsPage({ onOpen, onAdd, onEdit }: Props) {
                   </div>
                 </div>
                 <div className="absolute right-2 top-2 hidden gap-0.5 group-hover:flex">
+                  <IconBtn title="Monitor (CPU/RAM/disk/net)" onClick={(e) => { e.stopPropagation(); onMonitor(h); }}>
+                    <Activity className="size-3.5" />
+                  </IconBtn>
                   <IconBtn title="Edit" onClick={(e) => { e.stopPropagation(); onEdit(h); }}>
                     <Pencil className="size-3.5" />
                   </IconBtn>

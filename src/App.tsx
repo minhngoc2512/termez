@@ -15,6 +15,7 @@ import { HostForm } from "./components/HostForm";
 import { KeyManager } from "./components/KeyManager";
 import { SyncDialog } from "./components/SyncDialog";
 import { TerminalView } from "./components/TerminalView";
+import { MonitorView } from "./components/MonitorView";
 import { SftpView } from "./components/SftpView";
 import { ForwardingView } from "./components/ForwardingView";
 import { VaultView } from "./components/VaultView";
@@ -49,6 +50,7 @@ const components = {
     />
   ),
   sftp: () => <SftpView />,
+  monitor: (props: IDockviewPanelProps<{ hostId: string }>) => <MonitorView hostId={props.params.hostId} />,
 };
 
 const tabComponents = { info: PanelTab };
@@ -162,6 +164,17 @@ export default function App() {
     });
   }
 
+  function openMonitor(host: Host) {
+    apiRef.current?.addPanel({
+      id: crypto.randomUUID(),
+      component: "monitor",
+      tabComponent: "info",
+      title: `${host.label} · Monitor`,
+      params: { hostId: host.id },
+    });
+    setShowHome(false);
+  }
+
   function openSftp() {
     apiRef.current?.addPanel({
       id: crypto.randomUUID(),
@@ -261,7 +274,7 @@ export default function App() {
           {/* Feature pages — phủ lên workspace khi ở Home */}
           {showHome && (
             <div className="absolute inset-0 z-10 bg-background">
-              {section === "hosts" && <HostsPage onOpen={openHost} onAdd={openAdd} onEdit={openEdit} />}
+              {section === "hosts" && <HostsPage onOpen={openHost} onAdd={openAdd} onEdit={openEdit} onMonitor={openMonitor} />}
               {section === "keychain" && <KeychainPage onManage={() => setKeysOpen(true)} />}
               {section === "forwarding" && <ForwardingView />}
               {section === "passwords" && <VaultView />}
