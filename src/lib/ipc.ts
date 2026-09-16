@@ -312,6 +312,10 @@ export const api = {
   applockTotpDisable: (password: string) => invoke<void>("applock_totp_disable", { password }),
   applockSetReauth: (reauthMins: number) => invoke<void>("applock_set_reauth", { reauthMins }),
 
+  appVersion: () => invoke<string>("app_version"),
+  checkUpdate: () =>
+    invoke<{ current: string; latest: string; has_update: boolean; url: string; notes: string }>("check_update"),
+
   scanHosts: (cidr: string, port: number) => invoke<string[]>("scan_hosts", { cidr, port }),
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),
   scanLan: (cidr: string) => invoke<LanDevice[]>("scan_lan", { cidr }),

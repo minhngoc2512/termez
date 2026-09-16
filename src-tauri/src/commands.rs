@@ -835,6 +835,75 @@ pub async fn applock_set_timeout(timeout_mins: u32) -> R<()> {
     Ok(())
 }
 
+// ----- Thông tin app + kiểm tra cập nhật -----
+
+const RELEASES_API: &str = "https://api.github.com/repos/minhngoc2512/termez/releases/latest";
+
+#[derive(serde::Serialize)]
+pub struct UpdateInfo {
+    current: String,
+    latest: String,
+    has_update: bool,
+    url: String,
+    notes: String,
+}
+
+/// Phiên bản hiện tại (lấy từ Cargo.toml lúc biên dịch).
+#[tauri::command]
+pub fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// So sánh với release mới nhất trên GitHub.
+#[tauri::command]
+pub async fn check_update() -> R<UpdateInfo> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let resp = reqwest::Client::new()
+        .get(RELEASES_API)
+        .header("User-Agent", "Termez")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(e)?;
+    // Chưa publish release nào — coi như đang ở bản mới nhất.
+    if resp.status().as_u16() == 404 {
+        return Ok(UpdateInfo {
+            latest: current.clone(),
+            current,
+            has_update: false,
+            url: String::new(),
+            notes: String::new(),
+        });
+    }
+    if !resp.status().is_success() {
+        return Err(format!("GitHub {}", resp.status()));
+    }
+    let j: serde_json::Value = resp.json().await.map_err(e)?;
+    let latest = j["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+    let url = j["html_url"].as_str().unwrap_or("").to_string();
+    let notes = j["body"].as_str().unwrap_or("").to_string();
+    let has_update = version_gt(&latest, &current);
+    Ok(UpdateInfo { current, latest, has_update, url, notes })
+}
+
+/// So sánh semver rút gọn: `a` mới hơn `b`?
+fn version_gt(a: &str, b: &str) -> bool {
+    fn parts(v: &str) -> Vec<u64> {
+        v.split(['.', '-'])
+            .filter_map(|p| p.parse::<u64>().ok())
+            .collect()
+    }
+    let (pa, pb) = (parts(a), parts(b));
+    for i in 0..pa.len().max(pb.len()) {
+        let x = pa.get(i).copied().unwrap_or(0);
+        let y = pb.get(i).copied().unwrap_or(0);
+        if x != y {
+            return x > y;
+        }
+    }
+    false
+}
+
 // ----- Quét mạng (TCP connect) -----
 
 #[tauri::command]

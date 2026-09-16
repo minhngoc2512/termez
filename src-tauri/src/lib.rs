@@ -94,6 +94,8 @@ pub fn run() {
             commands::applock_totp_disable,
             commands::applock_set_reauth,
             commands::applock_unlock,
+            commands::app_version,
+            commands::check_update,
             commands::scan_hosts,
             commands::scan_ports,
             commands::scan_lan,

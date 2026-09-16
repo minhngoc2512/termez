@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   Key, Copy, Trash2, Cloud, Settings as SettingsIcon, Fingerprint, Lock, ShieldCheck,
-  Sun, Moon, Monitor, Palette, SquareTerminal,
+  Sun, Moon, Monitor, Palette, SquareTerminal, Info, Download, RefreshCw,
 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/ipc";
 import { confirmDialog, promptDialog, alertDialog } from "../lib/dialogs";
 import { AppTheme, useStore } from "../store";
@@ -98,11 +99,80 @@ export function SettingsPage({ onSync }: { onSync: () => void }) {
             </div>
             <Button size="sm" onClick={onSync}>Configure</Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            More appearance & terminal settings are coming in a later phase.
-          </p>
+
+          <AboutCard />
         </div>
       </div>
+    </div>
+  );
+}
+
+type UpdateState = { current: string; latest: string; has_update: boolean; url: string; notes: string };
+
+/** Thông tin app + phiên bản + kiểm tra cập nhật từ GitHub Releases. */
+function AboutCard() {
+  const [version, setVersion] = useState<string>("");
+  const [checking, setChecking] = useState(false);
+  const [upd, setUpd] = useState<UpdateState | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { api.appVersion().then(setVersion).catch(() => {}); }, []);
+
+  async function check() {
+    setChecking(true);
+    setErr(null);
+    setUpd(null);
+    try {
+      setUpd(await api.checkUpdate());
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+          <Info className="size-5" />
+        </span>
+        <div className="flex-1">
+          <div className="font-medium">About Termez</div>
+          <div className="text-sm text-muted-foreground">
+            SSH / SFTP manager · version <span className="font-mono">{version || "…"}</span>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={check} disabled={checking}>
+          <RefreshCw className={cn("size-4", checking && "animate-spin")} />
+          {checking ? "Checking…" : "Check for updates"}
+        </Button>
+      </div>
+
+      {err && <p className="mt-3 text-sm text-destructive">Couldn't check updates: {err}</p>}
+
+      {upd && !err && (
+        upd.has_update ? (
+          <div className="mt-3 rounded-lg border border-primary/40 bg-primary/10 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+              <Download className="size-4" />
+              Update available — v{upd.latest}
+            </div>
+            {upd.notes && (
+              <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                {upd.notes.slice(0, 1200)}
+              </pre>
+            )}
+            <div className="mt-3 flex justify-end">
+              <Button size="sm" onClick={() => openUrl(upd.url).catch(() => {})}>
+                <Download className="size-4" /> Get v{upd.latest}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">You're on the latest version.</p>
+        )
+      )}
     </div>
   );
 }
