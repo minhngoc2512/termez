@@ -34,18 +34,20 @@ The version comes from `src-tauri/tauri.conf.json` (`version`) — bump it there
 
 ## 3. Publish to GitHub Pages
 
-Serve `apt-repo/` at `https://minhngoc2512.github.io/termez/apt`. Simplest route:
+One command pushes `apt-repo/` to the `gh-pages` branch (served at
+`https://minhngoc2512.github.io/termez/apt`) without touching your main tree:
 
 ```bash
-# from repo root, on a clean gh-pages worktree
-git switch --orphan gh-pages
-mkdir -p apt && cp -r apt-repo/* apt/
-git add apt && git commit -m "apt repo <version>"
-git push -u origin gh-pages
+scripts/publish-apt.sh
 ```
 
-Then enable Pages (Settings → Pages → branch `gh-pages`, folder `/`).
-Override the printed URL with `PAGES_URL=…` if you host elsewhere.
+It creates the orphan `gh-pages` on first run, updates it in place afterwards
+(old package versions stay available), and enables GitHub Pages via `gh` when
+possible. Override with `BRANCH=…` / `SUBDIR=…` if you host differently.
+
+If you'd rather do it by hand: put `apt-repo/*` under `apt/` on a `gh-pages`
+branch, add a `.nojekyll`, push, and enable Pages (Settings → Pages → branch
+`gh-pages`, folder `/`).
 
 ## 4. How users install
 
