@@ -969,6 +969,7 @@ mod tests {
             proxy_port: None,
             proxy_username: None,
             jump_host_id: None,
+            proxy_command: None,
             proxy_password: None,
         };
         let saved = upsert_host(&pool, input).await.expect("upsert insert");
