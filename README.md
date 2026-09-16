@@ -11,13 +11,32 @@ live, and back everything up to your own GitHub repo with end-to-end encryption.
 
 ## Install (Linux)
 
-### Via apt — recommended (auto-updates with `apt upgrade`)
+### Via apt — recommended
 
 ```bash
 curl -fsSL https://minhngoc2512.github.io/termez/apt/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null
 echo "deb [signed-by=/usr/share/keyrings/termez.gpg] https://minhngoc2512.github.io/termez/apt ./" | sudo tee /etc/apt/sources.list.d/termez.list
 sudo apt update && sudo apt install termez
 ```
+
+### Update
+
+Update **only Termez** (leaves the rest of the system untouched):
+
+```bash
+sudo apt update && sudo apt install --only-upgrade termez
+```
+
+Handy checks:
+
+```bash
+apt policy termez                              # installed vs available version
+apt list --upgradable 2>/dev/null | grep termez   # is a new version out?
+```
+
+`sudo apt upgrade` also updates Termez, but upgrades every other package too —
+use the `--only-upgrade` command above if you just want the app. Settings →
+About → **Check for updates** tells you when a new version is available.
 
 ### One-off `.deb`
 
