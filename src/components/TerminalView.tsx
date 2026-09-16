@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import "@xterm/xterm/css/xterm.css";
 import { api, base64ToBytes, SshClosedPayload, SshDataPayload } from "../lib/ipc";
+import { confirmDialog } from "../lib/dialogs";
 import { activeSessions } from "../lib/broadcast";
 import { resolveTheme } from "../lib/themes";
 import { useStore } from "../store";
@@ -61,7 +62,7 @@ export function TerminalView({ hostId, themeName, fontSize }: Props) {
       return true;
     });
 
-    (async () => {
+    async function connect(): Promise<void> {
       try {
         const id = await api.sshConnect(hostId, term.cols, term.rows);
         if (disposed) {
@@ -93,9 +94,36 @@ export function TerminalView({ hostId, themeName, fontSize }: Props) {
         term.onResize(({ cols, rows }) => api.sshResize(id, cols, rows));
         term.focus();
       } catch (err) {
+        const s = String(err);
+        if (s.startsWith("HOSTKEY|")) {
+          const parts = s.split("|");
+          const [, kind, addr, port, algo, fp] = parts;
+          const openssh = parts.slice(6).join("|");
+          const changed = kind === "changed";
+          const ok = await confirmDialog({
+            title: changed ? "⚠ Host key CHANGED" : "Unknown host key",
+            message: changed
+              ? `WARNING: the host key for ${addr}:${port} has CHANGED.\nThis could be a man-in-the-middle attack, or the server was reinstalled.\n\nType: ${algo}\nFingerprint: ${fp}\n\nAccept the new key only if you trust it.`
+              : `The authenticity of ${addr}:${port} can't be established.\n\nType: ${algo}\nFingerprint: ${fp}\n\nTrust this host and remember its key?`,
+            confirmText: changed ? "Accept new key" : "Trust",
+            danger: changed,
+          });
+          if (ok && !disposed) {
+            try {
+              await api.knownHostsAdd(addr, Number(port), algo, openssh, fp);
+              await connect();
+            } catch (e2) {
+              term.write(`\r\n\x1b[31mError saving host key: ${e2}\x1b[0m\r\n`);
+            }
+            return;
+          }
+          term.write(`\r\n\x1b[33mConnection aborted: host key not trusted.\x1b[0m\r\n`);
+          return;
+        }
         term.write(`\r\n\x1b[31mConnection error: ${err}\x1b[0m\r\n`);
       }
-    })();
+    }
+    connect();
 
     return () => {
       disposed = true;

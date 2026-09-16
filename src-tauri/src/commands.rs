@@ -271,12 +271,15 @@ pub async fn ssh_connect(
     let auth = resolve_auth(&host)?;
     let proxy = resolve_proxy(&host)?;
     let jump = resolve_jump(&state.db, &host, 0).await?;
-    state
+    let addr = host.address.clone();
+    let port = host.port as u16;
+    let expected = db::get_known_host(&state.db, &addr, port).await.map_err(e)?.map(|k| k.fingerprint);
+    let res = state
         .ssh
         .connect(
             app,
             host.address,
-            host.port as u16,
+            port,
             host.username,
             auth,
             cols,
@@ -285,9 +288,49 @@ pub async fn ssh_connect(
             host.keepalive != 0,
             proxy,
             jump,
+            expected,
+            true,
         )
-        .await
-        .map_err(e)
+        .await;
+    res.map_err(|err| hostkey_error(err, &addr, port))
+}
+
+/// Đổi lỗi "HOSTKEY\t..." từ conn.rs sang định dạng cho frontend TOFU, kèm địa chỉ host.
+fn hostkey_error(err: anyhow::Error, addr: &str, port: u16) -> String {
+    let s = err.to_string();
+    if let Some(rest) = s.strip_prefix("HOSTKEY\t") {
+        let mut it = rest.splitn(4, '\t');
+        let kind = it.next().unwrap_or("unknown");
+        let algo = it.next().unwrap_or("");
+        let fp = it.next().unwrap_or("");
+        let openssh = it.next().unwrap_or("");
+        return format!("HOSTKEY|{kind}|{addr}|{port}|{algo}|{fp}|{openssh}");
+    }
+    s
+}
+
+// ----- Known hosts -----
+
+#[tauri::command]
+pub async fn known_hosts_list(state: State<'_, AppState>) -> R<Vec<db::KnownHost>> {
+    db::list_known_hosts(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn known_hosts_add(
+    state: State<'_, AppState>,
+    host: String,
+    port: u16,
+    key_type: String,
+    key_b64: String,
+    fingerprint: String,
+) -> R<()> {
+    db::add_known_host(&state.db, &host, port, &key_type, &key_b64, &fingerprint).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn known_hosts_delete(state: State<'_, AppState>, id: String) -> R<()> {
+    db::delete_known_host(&state.db, &id).await.map_err(e)
 }
 
 // ----- SFTP -----
@@ -299,11 +342,19 @@ pub async fn sftp_open(state: State<'_, AppState>, host_id: String) -> R<String>
     let auth = resolve_auth(&host)?;
     let proxy = resolve_proxy(&host)?;
     let jump = resolve_jump(&state.db, &host, 0).await?;
+    let port = host.port as u16;
+    let expected = db::get_known_host(&state.db, &host.address, port).await.map_err(e)?.map(|k| k.fingerprint);
     state
         .sftp
-        .ensure_open(&host.id, &host.address, host.port as u16, &host.username, auth, proxy, jump)
+        .ensure_open(&host.id, &host.address, port, &host.username, auth, proxy, jump, expected)
         .await
-        .map_err(e)
+        .map_err(|err| {
+            if err.to_string().starts_with("HOSTKEY\t") {
+                format!("Host key for {}:{} doesn't match the saved key — open a terminal to this host to review it.", host.address, port)
+            } else {
+                err.to_string()
+            }
+        })
 }
 
 // ----- Tunnels (port forwarding) -----
@@ -340,6 +391,10 @@ pub async fn tunnel_start(app: AppHandle, state: State<'_, AppState>, id: String
     let auth = resolve_auth(&host)?;
     let proxy = resolve_proxy(&host)?;
     let jump = resolve_jump(&state.db, &host, 0).await?;
+    let expected = db::get_known_host(&state.db, &host.address, host.port as u16)
+        .await
+        .map_err(e)?
+        .map(|k| k.fingerprint);
     let spec = TunnelSpec {
         kind: t.kind,
         local_port: t.local_port as u16,
@@ -351,6 +406,7 @@ pub async fn tunnel_start(app: AppHandle, state: State<'_, AppState>, id: String
         auth,
         proxy,
         jump,
+        expected_hostkey: expected,
     };
     state.tunnels.start(app, id, spec).await.map_err(e)
 }

@@ -50,9 +50,13 @@ impl SshManager {
         keepalive: bool,
         proxy: Option<ProxyConfig>,
         jump: Option<Box<JumpConfig>>,
+        expected: Option<String>,
+        strict: bool,
     ) -> anyhow::Result<String> {
-        let conn =
-            connect_authenticated(&address, port, &username, auth, keepalive, proxy, jump).await?;
+        let conn = connect_authenticated(
+            &address, port, &username, auth, keepalive, proxy, jump, expected, strict,
+        )
+        .await?;
 
         // --- Mở channel + PTY + shell ---
         let mut channel = conn.handle.channel_open_session().await?;

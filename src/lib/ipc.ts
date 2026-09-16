@@ -153,6 +153,16 @@ export interface LanDevice {
   is_self: boolean;
 }
 
+export interface KnownHost {
+  id: string;
+  host: string;
+  port: number;
+  key_type: string;
+  key_b64: string;
+  fingerprint: string;
+  added_at: number;
+}
+
 export interface CfConfig {
   api_url: string;
   account_id: string;
@@ -277,6 +287,11 @@ export const api = {
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),
   scanLan: (cidr: string) => invoke<LanDevice[]>("scan_lan", { cidr }),
   localCidr: () => invoke<string | null>("local_cidr"),
+
+  knownHostsList: () => invoke<KnownHost[]>("known_hosts_list"),
+  knownHostsAdd: (host: string, port: number, keyType: string, keyB64: string, fingerprint: string) =>
+    invoke<void>("known_hosts_add", { host, port, keyType, keyB64, fingerprint }),
+  knownHostsDelete: (id: string) => invoke<void>("known_hosts_delete", { id }),
 
   cfGetConfig: () => invoke<CfConfig>("cf_get_config"),
   cfSaveConfig: (apiUrl: string, accountId: string, token: string | null) =>

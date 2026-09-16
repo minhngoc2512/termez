@@ -4,10 +4,30 @@
 use async_http_proxy::{http_connect_tokio, http_connect_tokio_with_basic_auth};
 use russh::client::{self, Handle};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_socks::tcp::Socks5Stream;
+
+/// Khóa server nhìn thấy khi bắt tay (để hiển thị / lưu known_hosts).
+#[derive(Clone, Default)]
+pub struct SeenKey {
+    pub key_openssh: String,
+    pub fingerprint: String,
+    pub algorithm: String,
+}
+
+/// Chính sách kiểm tra host key cho một kết nối.
+#[derive(Clone)]
+pub struct HostKeyCheck {
+    /// Fingerprint (SHA256:...) đã lưu, hoặc None nếu chưa biết host.
+    pub expected: Option<String>,
+    /// true: host lạ → TỪ CHỐI (TOFU cho terminal). false: chấp nhận host lạ (sftp/tunnel).
+    pub strict: bool,
+    /// Ghi lại khóa server thực tế để tầng trên đọc khi từ chối.
+    pub seen: Arc<Mutex<Option<SeenKey>>>,
+}
 
 /// Phương thức xác thực đã resolve (secret lấy từ keychain ở tầng command).
 #[derive(Clone)]
@@ -48,17 +68,58 @@ pub struct Connection {
     _keep: Vec<Handle<ClientHandler>>,
 }
 
-/// Handler SSH client. Phase hiện tại chấp nhận mọi server key (TODO: known_hosts).
-pub struct ClientHandler;
+/// Handler SSH client: kiểm tra host key theo `verify`.
+pub struct ClientHandler {
+    pub verify: HostKeyCheck,
+}
 
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKeyOrCertificate,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        let pk = match server_public_key {
+            PublicKeyOrCertificate::PublicKey { key, .. } => key,
+            // Chứng chỉ SSH: tạm chấp nhận (hiếm gặp).
+            PublicKeyOrCertificate::Certificate(_) => return Ok(true),
+        };
+        let key_openssh = pk.to_openssh().unwrap_or_default();
+        let fingerprint = pk.fingerprint(HashAlg::Sha256).to_string();
+        let algorithm = pk.algorithm().to_string();
+        *self.verify.seen.lock().unwrap() = Some(SeenKey {
+            key_openssh,
+            fingerprint: fingerprint.clone(),
+            algorithm,
+        });
+        Ok(match &self.verify.expected {
+            Some(e) => e == &fingerprint,
+            None => !self.verify.strict,
+        })
+    }
+}
+
+/// Kết nối stream + kiểm tra host key; nếu bị từ chối, dựng lỗi "HOSTKEY\t..." mang khóa thấy được.
+async fn connect_checked<R>(
+    config: Arc<client::Config>,
+    stream: R,
+    verify: HostKeyCheck,
+    had_expected: bool,
+) -> anyhow::Result<Handle<ClientHandler>>
+where
+    R: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let seen = verify.seen.clone();
+    match client::connect_stream(config, stream, ClientHandler { verify }).await {
+        Ok(h) => Ok(h),
+        Err(err) => {
+            if let Some(k) = seen.lock().unwrap().take() {
+                let kind = if had_expected { "changed" } else { "unknown" };
+                anyhow::bail!("HOSTKEY\t{kind}\t{}\t{}\t{}", k.algorithm, k.fingerprint, k.key_openssh);
+            }
+            Err(err.into())
+        }
     }
 }
 
@@ -120,6 +181,7 @@ async fn authenticate(
 }
 
 /// Mở kết nối SSH (qua proxy và/hoặc jump host nếu có) và xác thực.
+#[allow(clippy::too_many_arguments)]
 pub async fn connect_authenticated(
     address: &str,
     port: u16,
@@ -128,6 +190,8 @@ pub async fn connect_authenticated(
     keepalive: bool,
     proxy: Option<ProxyConfig>,
     jump: Option<Box<JumpConfig>>,
+    expected: Option<String>,
+    strict: bool,
 ) -> anyhow::Result<Connection> {
     let mut cfg = client::Config::default();
     if keepalive {
@@ -137,14 +201,20 @@ pub async fn connect_authenticated(
     let config = Arc::new(cfg);
 
     let mut keep: Vec<Handle<ClientHandler>> = Vec::new();
+    let had_expected = expected.is_some();
+    let verify = HostKeyCheck {
+        expected,
+        strict,
+        seen: Arc::new(Mutex::new(None)),
+    };
 
     let mut handle = match jump {
         None => {
             let stream = open_stream(address, port, &proxy).await?;
-            client::connect_stream(config, stream, ClientHandler).await?
+            connect_checked(config, stream, verify, had_expected).await?
         }
         Some(j) => {
-            // Kết nối tới jump host trước (đệ quy — jump có thể có jump/proxy riêng).
+            // Kết nối jump host trước (đệ quy). Jump: chấp nhận host lạ (chưa verify jump).
             let jump_conn = Box::pin(connect_authenticated(
                 &j.address,
                 j.port,
@@ -153,9 +223,10 @@ pub async fn connect_authenticated(
                 false,
                 j.proxy.clone(),
                 j.jump.clone(),
+                None,
+                false,
             ))
             .await?;
-            // Mở kênh direct-tcpip từ jump host tới server đích, dùng làm transport.
             let channel = jump_conn
                 .handle
                 .channel_open_direct_tcpip(address, port as u32, "127.0.0.1", 0)
@@ -163,7 +234,7 @@ pub async fn connect_authenticated(
                 .map_err(|e| anyhow::anyhow!("mở kênh qua jump host lỗi: {e}"))?;
             keep.push(jump_conn.handle);
             keep.extend(jump_conn._keep);
-            client::connect_stream(config, channel.into_stream(), ClientHandler).await?
+            connect_checked(config, channel.into_stream(), verify, had_expected).await?
         }
     };
 

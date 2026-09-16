@@ -208,6 +208,16 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             bucket      TEXT NOT NULL,
             created_at  INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS known_hosts (
+            id          TEXT PRIMARY KEY,
+            host        TEXT NOT NULL,
+            port        INTEGER NOT NULL,
+            key_type    TEXT NOT NULL,
+            key_b64     TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            added_at    INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_known_hosts_hp ON known_hosts(host, port);
         "#,
     )
     .execute(pool)
@@ -702,6 +712,69 @@ pub async fn upsert_bucket(
 
 pub async fn delete_bucket(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM storage_buckets WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ----- Known hosts (xác thực host key) -----
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct KnownHost {
+    pub id: String,
+    pub host: String,
+    pub port: i64,
+    pub key_type: String,
+    pub key_b64: String,
+    pub fingerprint: String,
+    pub added_at: i64,
+}
+
+pub async fn list_known_hosts(pool: &SqlitePool) -> anyhow::Result<Vec<KnownHost>> {
+    Ok(sqlx::query_as::<_, KnownHost>(
+        "SELECT * FROM known_hosts ORDER BY host COLLATE NOCASE, port",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_known_host(pool: &SqlitePool, host: &str, port: u16) -> anyhow::Result<Option<KnownHost>> {
+    Ok(sqlx::query_as::<_, KnownHost>("SELECT * FROM known_hosts WHERE host = ? AND port = ?")
+        .bind(host)
+        .bind(port as i64)
+        .fetch_optional(pool)
+        .await?)
+}
+
+pub async fn add_known_host(
+    pool: &SqlitePool,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    key_b64: &str,
+    fingerprint: &str,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"INSERT INTO known_hosts (id, host, port, key_type, key_b64, fingerprint, added_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(host, port) DO UPDATE SET key_type=excluded.key_type,
+             key_b64=excluded.key_b64, fingerprint=excluded.fingerprint, added_at=excluded.added_at"#,
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(host)
+    .bind(port as i64)
+    .bind(key_type)
+    .bind(key_b64)
+    .bind(fingerprint)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_known_host(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM known_hosts WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await?;

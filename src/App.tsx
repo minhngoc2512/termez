@@ -6,7 +6,7 @@ import {
   DockviewApi,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Home, Code2, ShieldCheck } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Home, Code2 } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
@@ -20,6 +20,7 @@ import { ForwardingView } from "./components/ForwardingView";
 import { VaultView } from "./components/VaultView";
 import { KeychainPage, SettingsPage, Placeholder } from "./components/SectionPages";
 import { NetworkScanPage } from "./components/NetworkScanPage";
+import { KnownHostsPage } from "./components/KnownHostsPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { StoragePage } from "./components/StoragePage";
 import { PanelTab } from "./components/PanelTab";
@@ -255,9 +256,7 @@ export default function App() {
               {section === "snippets" && (
                 <Placeholder icon={Code2} title="Snippets" note="Saved commands are coming soon." />
               )}
-              {section === "known" && (
-                <Placeholder icon={ShieldCheck} title="Known Hosts" note="Host key management is coming soon." />
-              )}
+              {section === "known" && <KnownHostsPage />}
               {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
               {section === "dns" && <CloudflareDnsPage />}
               {section === "storage" && <StoragePage />}
