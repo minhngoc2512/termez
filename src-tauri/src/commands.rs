@@ -969,6 +969,8 @@ struct ImportedEntry {
     url: Option<String>,
     notes: Option<String>,
     totp: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1048,6 +1050,7 @@ pub async fn import_kdbx(
     .map_err(e)?;
 
     let mut count = 0;
+    let mut folders: std::collections::HashSet<String> = std::collections::HashSet::new();
     for it in imported {
         let id = uuid::Uuid::new_v4().to_string();
         if let Some(pw) = &it.password {
@@ -1061,6 +1064,17 @@ pub async fn import_kdbx(
         } else {
             false
         };
+        // Giữ nguyên cấu trúc thư mục KeePass dưới "Imported/".
+        let folder = match it.group.as_deref() {
+            Some(g) if !g.is_empty() => format!("Imported/{g}"),
+            _ => "Imported".to_string(),
+        };
+        // Ghi lại mọi cấp thư mục để cây folder đầy đủ (kể cả nhóm rỗng-ish).
+        let mut acc = String::new();
+        for seg in folder.split('/') {
+            acc = if acc.is_empty() { seg.to_string() } else { format!("{acc}/{seg}") };
+            folders.insert(acc.clone());
+        }
         let input = VaultEntryInput {
             id: Some(id.clone()),
             title: it.title,
@@ -1068,13 +1082,16 @@ pub async fn import_kdbx(
             url: it.url,
             notes: it.notes,
             tags: None,
-            folder: Some("Imported".into()),
+            folder: Some(folder),
             linked_host_id: None,
             password: None,
             totp_secret: None,
         };
         db::upsert_entry(&state.db, &input, &id, has_totp).await.map_err(e)?;
         count += 1;
+    }
+    for f in &folders {
+        db::create_vault_folder(&state.db, f).await.ok();
     }
     schedule_autosync(app, &state);
     Ok(format!("Imported {count} entries from KeePass"))

@@ -20,6 +20,28 @@ struct Entry {
     url: Option<String>,
     notes: Option<String>,
     totp: Option<String>,
+    /// Đường dẫn nhóm KeePass (vd "EzTech/Vpn"); None nếu ở gốc.
+    group: Option<String>,
+}
+
+/// Duyệt cây nhóm, giữ nguyên cấu trúc thư mục.
+fn collect(group: &keepass::db::GroupRef, path: &str, out: &mut Vec<Entry>) {
+    for en in group.entries() {
+        out.push(Entry {
+            title: en.get_title().unwrap_or("Untitled").to_string(),
+            username: en.get_username().map(str::to_string).filter(|s| !s.is_empty()),
+            password: en.get_password().map(str::to_string).filter(|s| !s.is_empty()),
+            url: en.get_url().map(str::to_string).filter(|s| !s.is_empty()),
+            notes: en.get("Notes").map(str::to_string).filter(|s| !s.is_empty()),
+            totp: entry_totp(en.get_raw_otp_value(), en.get("TOTP Seed")),
+            group: if path.is_empty() { None } else { Some(path.to_string()) },
+        });
+    }
+    for sub in group.groups() {
+        let name = sub.name.replace('/', "-");
+        let child = if path.is_empty() { name } else { format!("{path}/{name}") };
+        collect(&sub, &child, out);
+    }
 }
 
 #[derive(Serialize)]
@@ -77,16 +99,7 @@ fn run() -> Result<Vec<Entry>, String> {
         .map_err(|e| format!("cannot open database (wrong password?): {e}"))?;
 
     let mut out = Vec::new();
-    for en in db.iter_all_entries() {
-        out.push(Entry {
-            title: en.get_title().unwrap_or("Untitled").to_string(),
-            username: en.get_username().map(str::to_string).filter(|s| !s.is_empty()),
-            password: en.get_password().map(str::to_string).filter(|s| !s.is_empty()),
-            url: en.get_url().map(str::to_string).filter(|s| !s.is_empty()),
-            notes: en.get("Notes").map(str::to_string).filter(|s| !s.is_empty()),
-            totp: entry_totp(en.get_raw_otp_value(), en.get("TOTP Seed")),
-        });
-    }
+    collect(&db.root(), "", &mut out);
     Ok(out)
 }
 
