@@ -4,10 +4,12 @@
 use async_http_proxy::{http_connect_tokio, http_connect_tokio_with_basic_auth};
 use russh::client::{self, Handle};
 use russh::keys::{decode_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::process::{Child, Command};
 use tokio_socks::tcp::Socks5Stream;
 
 /// Khóa server nhìn thấy khi bắt tay (để hiển thị / lưu known_hosts).
@@ -66,6 +68,33 @@ pub struct Connection {
     pub handle: Handle<ClientHandler>,
     /// Giữ các handle jump host sống suốt vòng đời kết nối (không được drop sớm).
     _keep: Vec<Handle<ClientHandler>>,
+    /// Giữ tiến trình ProxyCommand (vd cloudflared) sống; kill khi kết nối đóng.
+    _child: Option<Child>,
+}
+
+/// Spawn ProxyCommand (qua /bin/sh -c như OpenSSH), thay %h/%p/%r, dùng stdio làm transport.
+async fn spawn_proxy_command(
+    cmd: &str,
+    address: &str,
+    port: u16,
+    username: &str,
+) -> anyhow::Result<(tokio::io::Join<tokio::process::ChildStdout, tokio::process::ChildStdin>, Child)> {
+    let cmd = cmd
+        .replace("%h", address)
+        .replace("%p", &port.to_string())
+        .replace("%r", username);
+    let mut child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&cmd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Không chạy được ProxyCommand: {e}"))?;
+    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("ProxyCommand thiếu stdout"))?;
+    let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("ProxyCommand thiếu stdin"))?;
+    Ok((tokio::io::join(stdout, stdin), child))
 }
 
 /// Handler SSH client: kiểm tra host key theo `verify`.
@@ -192,6 +221,7 @@ pub async fn connect_authenticated(
     jump: Option<Box<JumpConfig>>,
     expected: Option<String>,
     strict: bool,
+    proxy_command: Option<String>,
 ) -> anyhow::Result<Connection> {
     let mut cfg = client::Config::default();
     if keepalive {
@@ -201,6 +231,7 @@ pub async fn connect_authenticated(
     let config = Arc::new(cfg);
 
     let mut keep: Vec<Handle<ClientHandler>> = Vec::new();
+    let mut child_hold: Option<Child> = None;
     let had_expected = expected.is_some();
     let verify = HostKeyCheck {
         expected,
@@ -208,12 +239,20 @@ pub async fn connect_authenticated(
         seen: Arc::new(Mutex::new(None)),
     };
 
-    let mut handle = match jump {
-        None => {
+    // ProxyCommand (vd cloudflared) thay cho TCP/jump.
+    let pcmd = proxy_command.filter(|c| !c.trim().is_empty());
+
+    let mut handle = match (pcmd, jump) {
+        (Some(cmd), _) => {
+            let (stream, child) = spawn_proxy_command(&cmd, address, port, username).await?;
+            child_hold = Some(child);
+            connect_checked(config, stream, verify, had_expected).await?
+        }
+        (None, None) => {
             let stream = open_stream(address, port, &proxy).await?;
             connect_checked(config, stream, verify, had_expected).await?
         }
-        Some(j) => {
+        (None, Some(j)) => {
             // Kết nối jump host trước (đệ quy). Jump: chấp nhận host lạ (chưa verify jump).
             let jump_conn = Box::pin(connect_authenticated(
                 &j.address,
@@ -225,6 +264,7 @@ pub async fn connect_authenticated(
                 j.jump.clone(),
                 None,
                 false,
+                None,
             ))
             .await?;
             let channel = jump_conn
@@ -239,5 +279,5 @@ pub async fn connect_authenticated(
     };
 
     authenticate(&mut handle, username, auth).await?;
-    Ok(Connection { handle, _keep: keep })
+    Ok(Connection { handle, _keep: keep, _child: child_hold })
 }

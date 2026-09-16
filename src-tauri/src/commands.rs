@@ -187,6 +187,124 @@ pub async fn delete_host(app: AppHandle, state: State<'_, AppState>, id: String)
     Ok(())
 }
 
+struct SshBlock {
+    alias: String,
+    hostname: Option<String>,
+    user: Option<String>,
+    port: Option<i64>,
+    identity_file: Option<String>,
+    proxy_command: Option<String>,
+}
+
+fn parse_ssh_config(content: &str) -> Vec<SshBlock> {
+    let mut out = Vec::new();
+    let mut cur: Option<SshBlock> = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, val)) = line.split_once(char::is_whitespace) else { continue };
+        let val = val.trim().trim_start_matches('=').trim();
+        match key.to_lowercase().as_str() {
+            "host" => {
+                if let Some(b) = cur.take() {
+                    if !b.alias.is_empty() {
+                        out.push(b);
+                    }
+                }
+                let alias = val
+                    .split_whitespace()
+                    .find(|p| !p.contains('*') && !p.contains('?'))
+                    .unwrap_or("")
+                    .to_string();
+                cur = Some(SshBlock {
+                    alias,
+                    hostname: None,
+                    user: None,
+                    port: None,
+                    identity_file: None,
+                    proxy_command: None,
+                });
+            }
+            other => {
+                if let Some(b) = cur.as_mut() {
+                    match other {
+                        "hostname" => b.hostname = Some(val.to_string()),
+                        "user" => b.user = Some(val.to_string()),
+                        "port" => b.port = val.parse().ok(),
+                        "identityfile" => b.identity_file = Some(val.to_string()),
+                        "proxycommand" => b.proxy_command = Some(val.to_string()),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    if let Some(b) = cur.take() {
+        if !b.alias.is_empty() {
+            out.push(b);
+        }
+    }
+    out.into_iter().filter(|b| !b.alias.is_empty()).collect()
+}
+
+/// Import các host từ ~/.ssh/config (bao gồm ProxyCommand cho Cloudflare Tunnel).
+#[tauri::command]
+pub async fn import_ssh_config(app: AppHandle, state: State<'_, AppState>) -> R<String> {
+    let home = std::env::var("HOME").map_err(|_| "Không tìm thấy HOME".to_string())?;
+    let path = format!("{home}/.ssh/config");
+    let content = std::fs::read_to_string(&path).map_err(|err| format!("Không đọc được {path}: {err}"))?;
+    let expand = |p: String| -> Option<String> {
+        Some(if let Some(rest) = p.strip_prefix("~/") {
+            format!("{home}/{rest}")
+        } else {
+            p
+        })
+    };
+    let existing: std::collections::HashSet<String> = db::list_hosts(&state.db)
+        .await
+        .map_err(e)?
+        .into_iter()
+        .map(|h| h.label)
+        .collect();
+    let mut count = 0;
+    for b in parse_ssh_config(&content) {
+        if existing.contains(&b.alias) {
+            continue;
+        }
+        let auth_type = if b.identity_file.is_some() { "key" } else { "password" };
+        let input = HostInput {
+            id: None,
+            group_id: None,
+            label: b.alias.clone(),
+            address: b.hostname.unwrap_or_else(|| b.alias.clone()),
+            port: b.port.unwrap_or(22),
+            username: b.user.unwrap_or_else(|| "root".into()),
+            auth_type: auth_type.into(),
+            password: None,
+            private_key_path: b.identity_file.and_then(expand),
+            passphrase: None,
+            key_id: None,
+            startup_snippet: None,
+            keepalive: false,
+            term_theme: None,
+            font_size: None,
+            proxy_type: None,
+            proxy_host: None,
+            proxy_port: None,
+            proxy_username: None,
+            jump_host_id: None,
+            proxy_command: b.proxy_command,
+            proxy_password: None,
+        };
+        db::upsert_host(&state.db, input).await.map_err(e)?;
+        count += 1;
+    }
+    schedule_autosync(app, &state);
+    Ok(format!("Imported {count} host(s) from ~/.ssh/config"))
+}
+
 // ----- SSH keys -----
 
 #[tauri::command]
@@ -273,6 +391,7 @@ pub async fn ssh_connect(
     let jump = resolve_jump(&state.db, &host, 0).await?;
     let addr = host.address.clone();
     let port = host.port as u16;
+    let pcmd = host.proxy_command.clone();
     let expected = db::get_known_host(&state.db, &addr, port).await.map_err(e)?.map(|k| k.fingerprint);
     let res = state
         .ssh
@@ -290,6 +409,7 @@ pub async fn ssh_connect(
             jump,
             expected,
             true,
+            pcmd,
         )
         .await;
     res.map_err(|err| hostkey_error(err, &addr, port))
@@ -346,7 +466,7 @@ pub async fn sftp_open(state: State<'_, AppState>, host_id: String) -> R<String>
     let expected = db::get_known_host(&state.db, &host.address, port).await.map_err(e)?.map(|k| k.fingerprint);
     state
         .sftp
-        .ensure_open(&host.id, &host.address, port, &host.username, auth, proxy, jump, expected)
+        .ensure_open(&host.id, &host.address, port, &host.username, auth, proxy, jump, expected, host.proxy_command.clone())
         .await
         .map_err(|err| {
             if err.to_string().starts_with("HOSTKEY\t") {
@@ -407,6 +527,7 @@ pub async fn tunnel_start(app: AppHandle, state: State<'_, AppState>, id: String
         proxy,
         jump,
         expected_hostkey: expected,
+        proxy_command: host.proxy_command.clone(),
     };
     state.tunnels.start(app, id, spec).await.map_err(e)
 }

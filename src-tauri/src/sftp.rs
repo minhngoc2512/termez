@@ -66,13 +66,15 @@ impl SftpManager {
         proxy: Option<ProxyConfig>,
         jump: Option<Box<JumpConfig>>,
         expected: Option<String>,
+        proxy_command: Option<String>,
     ) -> anyhow::Result<String> {
         if let Some(c) = self.conns.lock().await.get(host_id) {
             return Ok(c.session.canonicalize(".").await.unwrap_or_else(|_| "/".into()));
         }
-        let conn =
-            connect_authenticated(address, port, username, auth, true, proxy, jump, expected, false)
-                .await?;
+        let conn = connect_authenticated(
+            address, port, username, auth, true, proxy, jump, expected, false, proxy_command,
+        )
+        .await?;
         let channel = conn.handle.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let session = SftpSession::new(channel.into_stream()).await?;

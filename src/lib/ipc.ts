@@ -31,6 +31,7 @@ export interface Host {
   proxy_port: number | null;
   proxy_username: string | null;
   jump_host_id: string | null;
+  proxy_command: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -120,6 +121,7 @@ export interface HostInput {
   proxy_port: number | null;
   proxy_username: string | null;
   jump_host_id: string | null;
+  proxy_command: string | null;
   proxy_password: string | null;
 }
 
@@ -233,6 +235,7 @@ export const api = {
   getHosts: () => invoke<Host[]>("get_hosts"),
   upsertHost: (input: HostInput) => invoke<Host>("upsert_host", { input }),
   deleteHost: (id: string) => invoke<void>("delete_host", { id }),
+  importSshConfig: () => invoke<string>("import_ssh_config"),
 
   getKeys: () => invoke<SshKey[]>("get_keys"),
   generateKey: (name: string, algorithm: string, passphrase: string | null) =>

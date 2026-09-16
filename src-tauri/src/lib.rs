@@ -47,6 +47,7 @@ pub fn run() {
             commands::get_hosts,
             commands::upsert_host,
             commands::delete_host,
+            commands::import_ssh_config,
             commands::get_keys,
             commands::generate_key,
             commands::import_key,

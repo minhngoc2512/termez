@@ -24,6 +24,7 @@ pub struct TunnelSpec {
     pub proxy: Option<ProxyConfig>,
     pub jump: Option<Box<JumpConfig>>,
     pub expected_hostkey: Option<String>,
+    pub proxy_command: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -73,6 +74,7 @@ impl TunnelManager {
                 spec.jump,
                 spec.expected_hostkey,
                 false,
+                spec.proxy_command,
             )
             .await?,
         );

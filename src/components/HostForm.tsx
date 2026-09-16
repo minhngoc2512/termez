@@ -70,6 +70,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
   const [proxyUser, setProxyUser] = useState("");
   const [proxyPass, setProxyPass] = useState("");
   const [jumpHostId, setJumpHostId] = useState<string | null>(null);
+  const [proxyCommand, setProxyCommand] = useState("");
 
   // Nạp giá trị khi mở dialog.
   useEffect(() => {
@@ -93,6 +94,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
     setProxyUser(host?.proxy_username ?? "");
     setProxyPass("");
     setJumpHostId(host?.jump_host_id ?? null);
+    setProxyCommand(host?.proxy_command ?? "");
     setError(null);
     setShowAdv(false);
   }, [open, host, preset]);
@@ -134,6 +136,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
       proxy_username: proxyType ? proxyUser.trim() || null : null,
       proxy_password: proxyType ? proxyPass || null : null,
       jump_host_id: jumpHostId,
+      proxy_command: proxyCommand.trim() || null,
     };
     try {
       await api.upsertHost(input);
@@ -285,6 +288,18 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
                     ))}
                 </SelectContent>
               </Select>
+            </Field>
+
+            <Field label="ProxyCommand (e.g. Cloudflare Tunnel)">
+              <Input
+                value={proxyCommand}
+                onChange={(e) => setProxyCommand(e.target.value)}
+                placeholder="cloudflared access ssh --hostname %h"
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                If set, this command is spawned as the connection transport (overrides Proxy/Jump). %h/%p/%r → host/port/user.
+              </p>
             </Field>
 
             <Field label="Proxy">

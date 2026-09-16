@@ -52,9 +52,10 @@ impl SshManager {
         jump: Option<Box<JumpConfig>>,
         expected: Option<String>,
         strict: bool,
+        proxy_command: Option<String>,
     ) -> anyhow::Result<String> {
         let conn = connect_authenticated(
-            &address, port, &username, auth, keepalive, proxy, jump, expected, strict,
+            &address, port, &username, auth, keepalive, proxy, jump, expected, strict, proxy_command,
         )
         .await?;
 

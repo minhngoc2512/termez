@@ -47,6 +47,8 @@ pub struct Host {
     pub proxy_username: Option<String>,
     /// Jump host (bastion): tham chiếu tới host khác dùng làm ProxyJump.
     pub jump_host_id: Option<String>,
+    /// ProxyCommand (vd cloudflared): spawn lệnh làm transport thay TCP. %h/%p/%r được thay thế.
+    pub proxy_command: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -87,6 +89,7 @@ pub struct HostInput {
     pub proxy_port: Option<i64>,
     pub proxy_username: Option<String>,
     pub jump_host_id: Option<String>,
+    pub proxy_command: Option<String>,
     /// mật khẩu proxy (chỉ khi tạo/sửa; lưu vào keychain, không vào DB)
     pub proxy_password: Option<String>,
 }
@@ -235,6 +238,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
         ("proxy_port", "INTEGER"),
         ("proxy_username", "TEXT"),
         ("jump_host_id", "TEXT"),
+        ("proxy_command", "TEXT"),
     ];
     for (name, ty) in add_cols {
         let exists: Option<i64> =
@@ -321,7 +325,7 @@ pub async fn upsert_host(pool: &SqlitePool, input: HostInput) -> anyhow::Result<
                    auth_type=?, password=NULL, private_key_path=?, passphrase=NULL,
                    key_id=?, startup_snippet=?, keepalive=?, term_theme=?, font_size=?,
                    proxy_type=?, proxy_host=?, proxy_port=?, proxy_username=?,
-                   jump_host_id=?, updated_at=?
+                   jump_host_id=?, proxy_command=?, updated_at=?
                    WHERE id=?"#,
             )
             .bind(&input.group_id)
@@ -341,6 +345,7 @@ pub async fn upsert_host(pool: &SqlitePool, input: HostInput) -> anyhow::Result<
             .bind(input.proxy_port)
             .bind(&input.proxy_username)
             .bind(&input.jump_host_id)
+            .bind(&input.proxy_command)
             .bind(ts)
             .bind(&id)
             .execute(pool)
@@ -352,9 +357,9 @@ pub async fn upsert_host(pool: &SqlitePool, input: HostInput) -> anyhow::Result<
             sqlx::query(
                 r#"INSERT INTO hosts (id, group_id, label, address, port, username, auth_type,
                    private_key_path, key_id, startup_snippet, keepalive, term_theme, font_size,
-                   proxy_type, proxy_host, proxy_port, proxy_username, jump_host_id,
+                   proxy_type, proxy_host, proxy_port, proxy_username, jump_host_id, proxy_command,
                    created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             )
             .bind(&id)
             .bind(&input.group_id)
@@ -374,6 +379,7 @@ pub async fn upsert_host(pool: &SqlitePool, input: HostInput) -> anyhow::Result<
             .bind(input.proxy_port)
             .bind(&input.proxy_username)
             .bind(&input.jump_host_id)
+            .bind(&input.proxy_command)
             .bind(ts)
             .bind(ts)
             .execute(pool)
@@ -885,8 +891,8 @@ pub async fn import_all(
             r#"INSERT INTO hosts (id, group_id, label, address, port, username, auth_type,
                password, private_key_path, passphrase, key_id, startup_snippet, keepalive,
                term_theme, font_size, proxy_type, proxy_host, proxy_port, proxy_username,
-               jump_host_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               jump_host_id, proxy_command, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&h.id)
         .bind(&h.group_id)
@@ -908,6 +914,7 @@ pub async fn import_all(
         .bind(h.proxy_port)
         .bind(&h.proxy_username)
         .bind(&h.jump_host_id)
+        .bind(&h.proxy_command)
         .bind(h.created_at)
         .bind(h.updated_at)
         .execute(pool)

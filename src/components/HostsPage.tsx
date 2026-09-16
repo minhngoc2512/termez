@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Server, Folder, Plus, Pencil, Trash2, Search, FolderPlus } from "lucide-react";
+import { Server, Folder, Plus, Pencil, Trash2, Search, FolderPlus, FileDown } from "lucide-react";
 import { api, Host } from "../lib/ipc";
-import { confirmDialog, promptDialog } from "../lib/dialogs";
+import { confirmDialog, promptDialog, alertDialog } from "../lib/dialogs";
 import { useStore } from "../store";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,15 @@ export function HostsPage({ onOpen, onAdd, onEdit }: Props) {
     await api.createGroup(name.trim(), null);
     refresh();
   }
+  async function importConfig() {
+    try {
+      const msg = await api.importSshConfig();
+      await refresh();
+      alertDialog({ title: "Import ~/.ssh/config", message: msg });
+    } catch (e) {
+      alertDialog({ title: "Import failed", message: String(e) });
+    }
+  }
   async function del(h: Host, e: React.MouseEvent) {
     e.stopPropagation();
     if (!(await confirmDialog({ title: "Delete host", message: `Delete host "${h.label}"?`, confirmText: "Delete", danger: true }))) return;
@@ -64,6 +73,9 @@ export function HostsPage({ onOpen, onAdd, onEdit }: Props) {
             className="w-full bg-transparent py-1.5 text-sm outline-none"
           />
         </div>
+        <Button variant="outline" size="sm" onClick={importConfig} title="Import hosts from ~/.ssh/config">
+          <FileDown className="size-4" /> Import config
+        </Button>
         <Button variant="outline" size="sm" onClick={newGroup}>
           <FolderPlus className="size-4" /> Group
         </Button>
