@@ -21,6 +21,7 @@ import { VaultView } from "./components/VaultView";
 import { KeychainPage, SettingsPage, Placeholder } from "./components/SectionPages";
 import { NetworkScanPage } from "./components/NetworkScanPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
+import { StoragePage } from "./components/StoragePage";
 import { PanelTab } from "./components/PanelTab";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
@@ -113,6 +114,10 @@ export default function App() {
   }
 
   function selectSection(s: Section) {
+    if (s === "sftp") {
+      openSftp();
+      return;
+    }
     setSection(s);
     setShowHome(true);
   }
@@ -255,6 +260,7 @@ export default function App() {
               )}
               {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
               {section === "dns" && <CloudflareDnsPage />}
+              {section === "storage" && <StoragePage />}
             </div>
           )}
         </main>

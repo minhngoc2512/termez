@@ -2,7 +2,7 @@
 //! XChaCha20-Poly1305) bằng master password → đẩy `vault.enc` lên repo GitHub private.
 //! GitHub chỉ thấy ciphertext; cần master password mới giải mã được (zero-knowledge).
 
-use crate::db::{Group, Host, SshKey, Tunnel, VaultEntry};
+use crate::db::{Group, Host, SshKey, StorageBucket, Tunnel, VaultEntry};
 use argon2::Argon2;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
@@ -25,6 +25,8 @@ pub struct Vault {
     pub entries: Vec<VaultEntry>,
     #[serde(default)]
     pub folders: Vec<String>,
+    #[serde(default)]
+    pub buckets: Vec<StorageBucket>,
     /// account keychain -> giá trị (mật khẩu host, private key, passphrase, proxy pass…)
     pub secrets: HashMap<String, String>,
 }

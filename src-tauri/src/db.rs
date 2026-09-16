@@ -199,6 +199,15 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             path        TEXT PRIMARY KEY,
             created_at  INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS storage_buckets (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            endpoint    TEXT NOT NULL,
+            region      TEXT,
+            access_key  TEXT NOT NULL,
+            bucket      TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        );
         "#,
     )
     .execute(pool)
@@ -617,6 +626,76 @@ pub async fn delete_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Resul
     Ok(())
 }
 
+// ----- Kết nối lưu trữ S3/R2/MinIO -----
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct StorageBucket {
+    pub id: String,
+    pub name: String,
+    pub endpoint: String,
+    pub region: Option<String>,
+    pub access_key: String,
+    pub bucket: String,
+    pub created_at: i64,
+}
+
+#[derive(Deserialize)]
+pub struct StorageBucketInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub endpoint: String,
+    pub region: Option<String>,
+    pub access_key: String,
+    pub bucket: String,
+    pub secret_key: Option<String>,
+}
+
+pub async fn list_buckets(pool: &SqlitePool) -> anyhow::Result<Vec<StorageBucket>> {
+    Ok(sqlx::query_as::<_, StorageBucket>(
+        "SELECT * FROM storage_buckets ORDER BY name COLLATE NOCASE",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_bucket(pool: &SqlitePool, id: &str) -> anyhow::Result<StorageBucket> {
+    Ok(sqlx::query_as::<_, StorageBucket>("SELECT * FROM storage_buckets WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await?)
+}
+
+pub async fn upsert_bucket(
+    pool: &SqlitePool,
+    input: &StorageBucketInput,
+    id: &str,
+) -> anyhow::Result<StorageBucket> {
+    sqlx::query(
+        r#"INSERT INTO storage_buckets (id, name, endpoint, region, access_key, bucket, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, endpoint=excluded.endpoint,
+             region=excluded.region, access_key=excluded.access_key, bucket=excluded.bucket"#,
+    )
+    .bind(id)
+    .bind(&input.name)
+    .bind(&input.endpoint)
+    .bind(&input.region)
+    .bind(&input.access_key)
+    .bind(&input.bucket)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    get_bucket(pool, id).await
+}
+
+pub async fn delete_bucket(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM storage_buckets WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Đổi tên/đường dẫn thư mục: đổi cả bản ghi thư mục con và cập nhật entry (giữ prefix).
 pub async fn rename_vault_folder(pool: &SqlitePool, old: &str, new: &str) -> anyhow::Result<()> {
     let old_like = format!("{old}/%");
@@ -647,8 +726,9 @@ pub async fn import_all(
     tunnels: &[Tunnel],
     entries: &[VaultEntry],
     folders: &[String],
+    buckets: &[StorageBucket],
 ) -> anyhow::Result<()> {
-    for t in ["tunnels", "hosts", "ssh_keys", "groups", "vault_entries", "vault_folders"] {
+    for t in ["tunnels", "hosts", "ssh_keys", "groups", "vault_entries", "vault_folders", "storage_buckets"] {
         sqlx::query(&format!("DELETE FROM {t}")).execute(pool).await?;
     }
     for path in folders {
@@ -657,6 +737,20 @@ pub async fn import_all(
             .bind(now())
             .execute(pool)
             .await?;
+    }
+    for b in buckets {
+        sqlx::query(
+            "INSERT INTO storage_buckets (id, name, endpoint, region, access_key, bucket, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&b.id)
+        .bind(&b.name)
+        .bind(&b.endpoint)
+        .bind(&b.region)
+        .bind(&b.access_key)
+        .bind(&b.bucket)
+        .bind(b.created_at)
+        .execute(pool)
+        .await?;
     }
     for en in entries {
         sqlx::query(

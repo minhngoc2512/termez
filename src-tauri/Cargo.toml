@@ -37,7 +37,14 @@ async-http-proxy = { version = "1.2.5", features = ["basic-auth", "runtime-tokio
 argon2 = "0.6.0"
 chacha20poly1305 = "0.11.0"
 rand = "0.8"
-reqwest = { version = "=0.12.9", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "=0.12.9", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# Ký AWS SigV4 cho S3/R2/MinIO (thuần Rust, tự cô lập — không đụng crypto của russh)
+hmac = "0.12"
+sha2 = "0.10"
+tokio-util = { version = "0.7", features = ["io"] }
+async-stream = "0.3"
+bytes = "1"
+walkdir = "2"
 totp-rs = { version = "6.0.0", default-features = false, features = ["std"] }
 tauri-plugin-dialog = "2.7.3"
 # Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì

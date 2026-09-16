@@ -664,6 +664,303 @@ pub async fn cf_delete_record(zone_id: String, id: String) -> R<()> {
     cf_client()?.delete_record(&zone_id, &id).await.map_err(e)
 }
 
+// ----- Lưu trữ S3/R2/MinIO -----
+
+async fn s3_for(db: &SqlitePool, bucket_id: &str) -> R<crate::s3::S3> {
+    let b = db::get_bucket(db, bucket_id).await.map_err(e)?;
+    let secret = keychain::get_secret(&keychain::storage_secret(bucket_id))
+        .map_err(e)?
+        .ok_or_else(|| "Secret key is not set for this connection".to_string())?;
+    Ok(crate::s3::S3::new(
+        b.endpoint,
+        b.region.unwrap_or_default(),
+        b.access_key,
+        secret,
+        b.bucket,
+    ))
+}
+
+#[tauri::command]
+pub async fn get_buckets(state: State<'_, AppState>) -> R<Vec<db::StorageBucket>> {
+    db::list_buckets(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn upsert_bucket(
+    state: State<'_, AppState>,
+    input: db::StorageBucketInput,
+) -> R<db::StorageBucket> {
+    let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let bucket = db::upsert_bucket(&state.db, &input, &id).await.map_err(e)?;
+    if let Some(secret) = &input.secret_key {
+        if !secret.trim().is_empty() {
+            keychain::set_secret(&keychain::storage_secret(&id), secret).map_err(e)?;
+        }
+    }
+    Ok(bucket)
+}
+
+#[tauri::command]
+pub async fn delete_bucket(state: State<'_, AppState>, id: String) -> R<()> {
+    db::delete_bucket(&state.db, &id).await.map_err(e)?;
+    keychain::delete_secret(&keychain::storage_secret(&id)).ok();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn s3_list(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    prefix: String,
+) -> R<crate::s3::Listing> {
+    s3_for(&state.db, &bucket_id).await?.list(&prefix, None).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn s3_upload(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    key: String,
+    file_path: String,
+) -> R<()> {
+    s3_for(&state.db, &bucket_id).await?.put_file(&key, &file_path).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn s3_delete(state: State<'_, AppState>, bucket_id: String, key: String) -> R<()> {
+    s3_for(&state.db, &bucket_id).await?.delete(&key).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn s3_presign(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    key: String,
+    expires: u64,
+) -> R<String> {
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+    Ok(s3.presign_get(&key, expires))
+}
+
+/// Copy/move một object. `move_it = true` → xóa nguồn sau khi copy.
+#[tauri::command]
+pub async fn s3_copy(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    src_key: String,
+    dst_key: String,
+    move_it: bool,
+) -> R<()> {
+    if src_key == dst_key {
+        return Ok(());
+    }
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+    s3.copy(&src_key, &dst_key).await.map_err(e)?;
+    if move_it {
+        s3.delete(&src_key).await.map_err(e)?;
+    }
+    Ok(())
+}
+
+/// Duyệt các path cục bộ → danh sách (local, key trên bucket, size). Thư mục đi đệ quy.
+fn plan_uploads(paths: &[String], prefix: &str) -> Vec<(String, String, u64)> {
+    let mut out = Vec::new();
+    for p in paths {
+        let path = std::path::Path::new(p);
+        let Ok(meta) = std::fs::metadata(path) else { continue };
+        if meta.is_file() {
+            if let Some(name) = path.file_name() {
+                out.push((p.clone(), format!("{prefix}{}", name.to_string_lossy()), meta.len()));
+            }
+        } else if meta.is_dir() {
+            let base = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            for entry in walkdir::WalkDir::new(path).into_iter().flatten() {
+                if entry.file_type().is_file() {
+                    let rel = entry.path().strip_prefix(path).unwrap_or(entry.path())
+                        .to_string_lossy().replace('\\', "/");
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    out.push((entry.path().to_string_lossy().to_string(), format!("{prefix}{base}/{rel}"), size));
+                }
+            }
+        }
+    }
+    out
+}
+
+#[derive(serde::Serialize)]
+pub struct UploadPlan {
+    count: usize,
+    total: u64,
+    conflicts: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn s3_upload_plan(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    prefix: String,
+    paths: Vec<String>,
+) -> R<UploadPlan> {
+    let p = prefix.clone();
+    let planned = tokio::task::spawn_blocking(move || plan_uploads(&paths, &p)).await.map_err(e)?;
+    let total = planned.iter().map(|x| x.2).sum();
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+    let existing: std::collections::HashSet<String> =
+        s3.list_all_keys(&prefix).await.map_err(e)?.into_iter().collect();
+    let conflicts: Vec<String> = planned
+        .iter()
+        .filter(|x| existing.contains(&x.1))
+        .map(|x| x.1.clone())
+        .take(200)
+        .collect();
+    Ok(UploadPlan { count: planned.len(), total, conflicts })
+}
+
+/// Upload nhiều file/thư mục, phát event "s3:progress". mode: overwrite | skip | replace.
+#[tauri::command]
+pub async fn s3_upload_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    bucket_id: String,
+    prefix: String,
+    paths: Vec<String>,
+    mode: String,
+) -> R<u32> {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let p = prefix.clone();
+    let paths2 = paths.clone();
+    let planned = tokio::task::spawn_blocking(move || plan_uploads(&paths2, &p)).await.map_err(e)?;
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+
+    let existing: std::collections::HashSet<String> = if mode == "skip" {
+        s3.list_all_keys(&prefix).await.map_err(e)?.into_iter().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
+    if mode == "replace" {
+        for pth in &paths {
+            let path = std::path::Path::new(pth);
+            if path.is_dir() {
+                if let Some(name) = path.file_name() {
+                    let pfx = format!("{prefix}{}/", name.to_string_lossy());
+                    for k in s3.list_all_keys(&pfx).await.map_err(e)? {
+                        s3.delete(&k).await.ok();
+                    }
+                }
+            }
+        }
+    }
+
+    let total: u64 = planned.iter().map(|x| x.2).sum();
+    let done = Arc::new(AtomicU64::new(0));
+    let fin = Arc::new(AtomicBool::new(false));
+    let cur = Arc::new(Mutex::new(String::new()));
+
+    {
+        let (app, done, fin, cur) = (app.clone(), done.clone(), fin.clone(), cur.clone());
+        tokio::spawn(async move {
+            let mut last = 0u64;
+            let mut last_t = std::time::Instant::now();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                if fin.load(Ordering::Relaxed) {
+                    break;
+                }
+                let d = done.load(Ordering::Relaxed);
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(last_t).as_secs_f64().max(1e-3);
+                let speed = d.saturating_sub(last) as f64 / dt;
+                let file = cur.lock().unwrap().clone();
+                let _ = app.emit(
+                    "s3:progress",
+                    serde_json::json!({"done":d,"total":total,"speed":speed,"file":file,"fin":false}),
+                );
+                last = d;
+                last_t = now;
+            }
+        });
+    }
+
+    let mut count = 0u32;
+    for (local, key, size) in planned {
+        if mode == "skip" && existing.contains(&key) {
+            done.fetch_add(size, Ordering::Relaxed);
+            continue;
+        }
+        *cur.lock().unwrap() = key.clone();
+        if let Err(err) = s3.put_counting(&key, &local, done.clone()).await {
+            fin.store(true, Ordering::Relaxed);
+            return Err(e(err));
+        }
+        count += 1;
+    }
+    fin.store(true, Ordering::Relaxed);
+    let _ = app.emit("s3:progress", serde_json::json!({"done":total,"total":total,"speed":0.0,"file":"","fin":true}));
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn s3_create_folder(state: State<'_, AppState>, bucket_id: String, key: String) -> R<()> {
+    let key = if key.ends_with('/') { key } else { format!("{key}/") };
+    s3_for(&state.db, &bucket_id).await?.put_empty(&key).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn s3_download(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    key: String,
+    dest_path: String,
+) -> R<()> {
+    s3_for(&state.db, &bucket_id).await?.get_to_file(&key, &dest_path).await.map_err(e)
+}
+
+/// Xóa cả "thư mục": mọi object dưới `prefix`.
+#[tauri::command]
+pub async fn s3_delete_prefix(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    prefix: String,
+) -> R<u32> {
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+    let keys = s3.list_all_keys(&prefix).await.map_err(e)?;
+    let mut count = 0;
+    for k in keys {
+        s3.delete(&k).await.map_err(e)?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// Copy/move cả "thư mục" (mọi object dưới `src_prefix`) sang `dst_prefix`.
+#[tauri::command]
+pub async fn s3_copy_prefix(
+    state: State<'_, AppState>,
+    bucket_id: String,
+    src_prefix: String,
+    dst_prefix: String,
+    move_it: bool,
+) -> R<u32> {
+    if src_prefix == dst_prefix || dst_prefix.starts_with(&src_prefix) {
+        return Err("Cannot copy a folder into itself".into());
+    }
+    let s3 = s3_for(&state.db, &bucket_id).await?;
+    let keys = s3.list_all_keys(&src_prefix).await.map_err(e)?;
+    let mut count = 0;
+    for k in keys {
+        let dst = format!("{}{}", dst_prefix, &k[src_prefix.len()..]);
+        s3.copy(&k, &dst).await.map_err(e)?;
+        if move_it {
+            s3.delete(&k).await.map_err(e)?;
+        }
+        count += 1;
+    }
+    Ok(count)
+}
+
 #[derive(serde::Deserialize)]
 struct ImportedEntry {
     title: String,
@@ -841,8 +1138,15 @@ async fn build_and_push(
     let tunnels = db::list_tunnels(db).await?;
     let entries = db::list_entries(db).await?;
     let folders = db::list_vault_folders(db).await?;
+    let buckets = db::list_buckets(db).await?;
 
     let mut secrets = std::collections::HashMap::new();
+    for b in &buckets {
+        let acc = keychain::storage_secret(&b.id);
+        if let Some(v) = keychain::get_secret(&acc)? {
+            secrets.insert(acc, v);
+        }
+    }
     for h in &hosts {
         for acc in [keychain::host_password(&h.id), keychain::proxy_password(&h.id)] {
             if let Some(v) = keychain::get_secret(&acc)? {
@@ -865,7 +1169,7 @@ async fn build_and_push(
         }
     }
 
-    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, folders, secrets };
+    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, folders, buckets, secrets };
     let json = serde_json::to_vec(&vault)?;
     let enc = sync::encrypt(&json, master)?;
     let content_b64 = base64::engine::general_purpose::STANDARD.encode(&enc);
@@ -967,6 +1271,7 @@ pub async fn sync_pull(state: State<'_, AppState>, master: String) -> R<String> 
         &vault.tunnels,
         &vault.entries,
         &vault.folders,
+        &vault.buckets,
     )
     .await
     .map_err(e)?;

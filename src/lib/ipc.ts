@@ -184,6 +184,35 @@ export interface CfInput {
   comment?: string | null;
 }
 
+export interface StorageBucket {
+  id: string;
+  name: string;
+  endpoint: string;
+  region: string | null;
+  access_key: string;
+  bucket: string;
+  created_at: number;
+}
+export interface StorageBucketInput {
+  id?: string | null;
+  name: string;
+  endpoint: string;
+  region: string | null;
+  access_key: string;
+  bucket: string;
+  secret_key?: string | null;
+}
+export interface S3Object {
+  key: string;
+  size: number;
+  last_modified: string;
+}
+export interface S3Listing {
+  prefixes: string[];
+  objects: S3Object[];
+  next_token: string | null;
+}
+
 // Tauri tự chuyển camelCase (JS) → snake_case (tham số Rust).
 export const api = {
   getGroups: () => invoke<Group[]>("get_groups"),
@@ -262,6 +291,30 @@ export const api = {
     invoke<CfRecord>("cf_update_record", { zoneId, id, input }),
   cfDeleteRecord: (zoneId: string, id: string) =>
     invoke<void>("cf_delete_record", { zoneId, id }),
+
+  getBuckets: () => invoke<StorageBucket[]>("get_buckets"),
+  upsertBucket: (input: StorageBucketInput) => invoke<StorageBucket>("upsert_bucket", { input }),
+  deleteBucket: (id: string) => invoke<void>("delete_bucket", { id }),
+  s3List: (bucketId: string, prefix: string) => invoke<S3Listing>("s3_list", { bucketId, prefix }),
+  s3Upload: (bucketId: string, key: string, filePath: string) =>
+    invoke<void>("s3_upload", { bucketId, key, filePath }),
+  s3Delete: (bucketId: string, key: string) => invoke<void>("s3_delete", { bucketId, key }),
+  s3Presign: (bucketId: string, key: string, expires: number) =>
+    invoke<string>("s3_presign", { bucketId, key, expires }),
+  s3Copy: (bucketId: string, srcKey: string, dstKey: string, moveIt: boolean) =>
+    invoke<void>("s3_copy", { bucketId, srcKey, dstKey, moveIt }),
+  s3CopyPrefix: (bucketId: string, srcPrefix: string, dstPrefix: string, moveIt: boolean) =>
+    invoke<number>("s3_copy_prefix", { bucketId, srcPrefix, dstPrefix, moveIt }),
+  s3Download: (bucketId: string, key: string, destPath: string) =>
+    invoke<void>("s3_download", { bucketId, key, destPath }),
+  s3DeletePrefix: (bucketId: string, prefix: string) =>
+    invoke<number>("s3_delete_prefix", { bucketId, prefix }),
+  s3UploadPlan: (bucketId: string, prefix: string, paths: string[]) =>
+    invoke<{ count: number; total: number; conflicts: string[] }>("s3_upload_plan", { bucketId, prefix, paths }),
+  s3UploadRun: (bucketId: string, prefix: string, paths: string[], mode: string) =>
+    invoke<number>("s3_upload_run", { bucketId, prefix, paths, mode }),
+  s3CreateFolder: (bucketId: string, key: string) =>
+    invoke<void>("s3_create_folder", { bucketId, key }),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

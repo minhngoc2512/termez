@@ -48,6 +48,7 @@ export function NetworkScanPage({ onAddHost }: { onAddHost: (address: string, po
   const [foundHosts, setFoundHosts] = useState<string[] | null>(null);
   const [openPorts, setOpenPorts] = useState<number[] | null>(null);
   const [devices, setDevices] = useState<LanDevice[] | null>(null);
+  const [devQ, setDevQ] = useState("");
 
   // Tự nhận subnet nội bộ để điền sẵn CIDR.
   useEffect(() => {
@@ -134,12 +135,26 @@ export function NetworkScanPage({ onAddHost }: { onAddHost: (address: string, po
                 vendor guess, hostname; marks the router and this device. No root needed.
               </p>
 
-              {devices && (
-                <Results title={`${devices.length} device${devices.length === 1 ? "" : "s"} on the network`}>
+              {devices && devices.length > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-input bg-card px-2.5 sm:max-w-sm">
+                  <Search className="size-4 text-muted-foreground" />
+                  <input value={devQ} onChange={(e) => setDevQ(e.target.value)} placeholder="Filter by IP, MAC, name…"
+                    className="w-full bg-transparent py-1.5 text-sm outline-none" />
+                </div>
+              )}
+              {devices && (() => {
+                const s = devQ.trim().toLowerCase();
+                const shown = s ? devices.filter((d) =>
+                  d.ip.includes(s) || d.mac.toLowerCase().includes(s) ||
+                  (d.vendor ?? "").toLowerCase().includes(s) || (d.hostname ?? "").toLowerCase().includes(s)) : devices;
+                return (
+                <Results title={`${shown.length}${s ? ` / ${devices.length}` : ""} device${devices.length === 1 ? "" : "s"} on the network`}>
                   {devices.length === 0 ? (
                     <Empty text="No devices found — try again (ARP cache may need a moment)." />
+                  ) : shown.length === 0 ? (
+                    <Empty text="No devices match your filter." />
                   ) : (
-                    devices.map((d) => (
+                    shown.map((d) => (
                       <div key={d.ip} className="flex items-center gap-3 px-3 py-2 hover:bg-accent">
                         <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg",
                           d.is_gateway ? "bg-orange-500/15 text-orange-500" : "bg-primary/15 text-primary")}>
@@ -164,7 +179,8 @@ export function NetworkScanPage({ onAddHost }: { onAddHost: (address: string, po
                     ))
                   )}
                 </Results>
-              )}
+                );
+              })()}
             </>
           ) : mode === "hosts" ? (
             <>

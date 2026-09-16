@@ -5,6 +5,7 @@ mod conn;
 mod db;
 mod keychain;
 mod keys;
+mod s3;
 mod scan;
 mod sftp;
 mod ssh;
@@ -95,6 +96,20 @@ pub fn run() {
             commands::cf_create_record,
             commands::cf_update_record,
             commands::cf_delete_record,
+            commands::get_buckets,
+            commands::upsert_bucket,
+            commands::delete_bucket,
+            commands::s3_list,
+            commands::s3_upload,
+            commands::s3_delete,
+            commands::s3_presign,
+            commands::s3_copy,
+            commands::s3_copy_prefix,
+            commands::s3_download,
+            commands::s3_delete_prefix,
+            commands::s3_upload_plan,
+            commands::s3_upload_run,
+            commands::s3_create_folder,
             commands::import_kdbx,
             commands::sync_get_config,
             commands::sync_save_config,

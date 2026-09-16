@@ -1,5 +1,5 @@
 import {
-  Server, Key, Cable, KeyRound, Code2, ShieldCheck, Radar, Globe, Settings, Cloud,
+  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "../store";
@@ -8,11 +8,13 @@ export type Section =
   | "hosts"
   | "keychain"
   | "forwarding"
+  | "sftp"
   | "passwords"
   | "snippets"
   | "known"
   | "scan"
   | "dns"
+  | "storage"
   | "settings";
 
 interface Item {
@@ -25,11 +27,13 @@ const TOP: Item[] = [
   { id: "hosts", label: "Hosts", icon: Server },
   { id: "keychain", label: "Keychain", icon: Key },
   { id: "forwarding", label: "Port Forwarding", icon: Cable },
+  { id: "sftp", label: "SFTP", icon: FolderOpen },
   { id: "passwords", label: "Passwords", icon: KeyRound },
   { id: "snippets", label: "Snippets", icon: Code2 },
   { id: "known", label: "Known Hosts", icon: ShieldCheck },
   { id: "scan", label: "Network Scan", icon: Radar },
   { id: "dns", label: "Cloudflare DNS", icon: Globe },
+  { id: "storage", label: "Storage", icon: HardDrive },
 ];
 
 interface Props {
