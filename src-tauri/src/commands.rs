@@ -702,11 +702,15 @@ pub async fn rename_vault_folder(app: AppHandle, state: State<'_, AppState>, old
 
 const APPLOCK: &str = "applock";
 const APPLOCK_TIMEOUT: &str = "applock-timeout";
+const APPLOCK_TOTP: &str = "applock-totp";
+const APPLOCK_REAUTH: &str = "applock-reauth";
 
 #[derive(serde::Serialize)]
 pub struct AppLockStatus {
     enabled: bool,
     timeout_mins: u32,
+    totp_enabled: bool,
+    reauth_mins: u32,
 }
 
 #[tauri::command]
@@ -716,7 +720,79 @@ pub async fn applock_status() -> R<AppLockStatus> {
         .map_err(e)?
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    Ok(AppLockStatus { enabled, timeout_mins })
+    let totp_enabled = keychain::get_secret(APPLOCK_TOTP).map_err(e)?.is_some();
+    let reauth_mins = keychain::get_secret(APPLOCK_REAUTH)
+        .map_err(e)?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    Ok(AppLockStatus { enabled, timeout_mins, totp_enabled, reauth_mins })
+}
+
+#[derive(serde::Serialize)]
+pub struct TotpSetup {
+    secret: String,
+    uri: String,
+    qr_svg: String,
+}
+
+/// Tạo secret 2FA mới (chưa bật) + URL + QR để quét.
+#[tauri::command]
+pub async fn applock_totp_setup() -> R<TotpSetup> {
+    let secret = crate::totp::generate_secret_b32();
+    let uri = crate::totp::otpauth_url(&secret).map_err(e)?;
+    let qr_svg = qrcode::QrCode::new(uri.as_bytes())
+        .map(|c| c.render::<qrcode::render::svg::Color>().min_dimensions(180, 180).build())
+        .unwrap_or_default();
+    Ok(TotpSetup { secret, uri, qr_svg })
+}
+
+/// Bật 2FA: xác minh mã người dùng nhập khớp secret rồi mới lưu.
+#[tauri::command]
+pub async fn applock_totp_enable(secret: String, code: String) -> R<()> {
+    if !crate::totp::verify(&secret, &code) {
+        return Err("Code doesn't match — check your authenticator app.".into());
+    }
+    keychain::set_secret(APPLOCK_TOTP, secret.trim()).map_err(e)?;
+    Ok(())
+}
+
+/// Tắt 2FA (cần đúng mật khẩu app).
+#[tauri::command]
+pub async fn applock_totp_disable(password: String) -> R<()> {
+    match keychain::get_secret(APPLOCK).map_err(e)? {
+        Some(phc) if crate::applock::verify(&password, &phc) => {
+            keychain::delete_secret(APPLOCK_TOTP).ok();
+            Ok(())
+        }
+        Some(_) => Err("Wrong password".into()),
+        None => Ok(()),
+    }
+}
+
+/// Đặt khoảng thời gian (phút) buộc xác thực lại (kể cả đang hoạt động). 0 = tắt.
+#[tauri::command]
+pub async fn applock_set_reauth(reauth_mins: u32) -> R<()> {
+    keychain::set_secret(APPLOCK_REAUTH, &reauth_mins.to_string()).map_err(e)?;
+    Ok(())
+}
+
+/// Mở khóa: kiểm tra mật khẩu + (nếu bật) mã 2FA.
+#[tauri::command]
+pub async fn applock_unlock(password: String, code: Option<String>) -> R<bool> {
+    match keychain::get_secret(APPLOCK).map_err(e)? {
+        Some(phc) => {
+            if !crate::applock::verify(&password, &phc) {
+                return Ok(false);
+            }
+        }
+        None => return Ok(true),
+    }
+    if let Some(secret) = keychain::get_secret(APPLOCK_TOTP).map_err(e)? {
+        if !crate::totp::verify(&secret, code.as_deref().unwrap_or("")) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[tauri::command]
@@ -736,6 +812,8 @@ pub async fn applock_disable(password: String) -> R<()> {
         Some(phc) if crate::applock::verify(&password, &phc) => {
             keychain::delete_secret(APPLOCK).map_err(e)?;
             keychain::delete_secret(APPLOCK_TIMEOUT).ok();
+            keychain::delete_secret(APPLOCK_TOTP).ok();
+            keychain::delete_secret(APPLOCK_REAUTH).ok();
             Ok(())
         }
         Some(_) => Err("Wrong password".into()),

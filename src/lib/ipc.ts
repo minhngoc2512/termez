@@ -298,12 +298,19 @@ export const api = {
   renameVaultFolder: (oldPath: string, newPath: string) =>
     invoke<void>("rename_vault_folder", { old: oldPath, new: newPath }),
 
-  applockStatus: () => invoke<{ enabled: boolean; timeout_mins: number }>("applock_status"),
+  applockStatus: () => invoke<{ enabled: boolean; timeout_mins: number; totp_enabled: boolean; reauth_mins: number }>("applock_status"),
   applockEnable: (password: string, timeoutMins: number) =>
     invoke<void>("applock_enable", { password, timeoutMins }),
   applockDisable: (password: string) => invoke<void>("applock_disable", { password }),
   applockVerify: (password: string) => invoke<boolean>("applock_verify", { password }),
   applockSetTimeout: (timeoutMins: number) => invoke<void>("applock_set_timeout", { timeoutMins }),
+  applockUnlock: (password: string, code: string | null) =>
+    invoke<boolean>("applock_unlock", { password, code }),
+  applockTotpSetup: () => invoke<{ secret: string; uri: string; qr_svg: string }>("applock_totp_setup"),
+  applockTotpEnable: (secret: string, code: string) =>
+    invoke<void>("applock_totp_enable", { secret, code }),
+  applockTotpDisable: (password: string) => invoke<void>("applock_totp_disable", { password }),
+  applockSetReauth: (reauthMins: number) => invoke<void>("applock_set_reauth", { reauthMins }),
 
   scanHosts: (cidr: string, port: number) => invoke<string[]>("scan_hosts", { cidr, port }),
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),

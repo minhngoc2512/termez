@@ -3865,6 +3865,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "quick-xml"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5636,6 +5642,7 @@ dependencies = [
  "chacha20poly1305",
  "hmac 0.12.1",
  "keyring",
+ "qrcode",
  "rand 0.8.8",
  "reqwest 0.12.9",
  "russh",
@@ -5956,10 +5963,12 @@ dependencies = [
  "base32",
  "constant_time_eq",
  "hmac 0.13.0",
+ "percent-encoding",
  "rand 0.10.2",
  "serde",
  "sha1 0.11.0",
  "sha2 0.11.0",
+ "url",
  "zeroize",
 ]
 

@@ -51,6 +51,8 @@ interface AppState {
   locked: boolean;
   lockEnabled: boolean;
   lockTimeout: number; // phút; 0 = không tự khóa
+  lockTotp: boolean;
+  lockReauth: number; // phút; buộc xác thực lại (kể cả đang hoạt động)
   appTheme: AppTheme;
   termTheme: string;
   termFontSize: number;
@@ -75,6 +77,8 @@ export const useStore = create<AppState>((set) => ({
   locked: false,
   lockEnabled: false,
   lockTimeout: 0,
+  lockTotp: false,
+  lockReauth: 0,
   appTheme: initialAppTheme,
   termTheme: ls("term-theme", DEFAULT_THEME),
   termFontSize: Number(ls("term-font-size", "13.5")) || 13.5,
@@ -86,9 +90,9 @@ export const useStore = create<AppState>((set) => ({
   refreshLock: async () => {
     try {
       const s = await api.applockStatus();
-      set({ lockEnabled: s.enabled, lockTimeout: s.timeout_mins });
+      set({ lockEnabled: s.enabled, lockTimeout: s.timeout_mins, lockTotp: s.totp_enabled, lockReauth: s.reauth_mins });
     } catch {
-      set({ lockEnabled: false, lockTimeout: 0 });
+      set({ lockEnabled: false, lockTimeout: 0, lockTotp: false, lockReauth: 0 });
     }
   },
 

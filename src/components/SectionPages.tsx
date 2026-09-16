@@ -212,6 +212,8 @@ const TIMEOUTS = [
 function AppLockCard() {
   const lockEnabled = useStore((s) => s.lockEnabled);
   const lockTimeout = useStore((s) => s.lockTimeout);
+  const lockTotp = useStore((s) => s.lockTotp);
+  const lockReauth = useStore((s) => s.lockReauth);
   const refreshLock = useStore((s) => s.refreshLock);
   const setLocked = useStore((s) => s.setLocked);
 
@@ -220,6 +222,7 @@ function AppLockCard() {
   const [idleMins, setIdleMins] = useState(5);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [totpSetup, setTotpSetup] = useState(false);
 
   useEffect(() => { refreshLock(); }, [refreshLock]);
 
@@ -257,6 +260,30 @@ function AppLockCard() {
   async function changeTimeout(v: number) {
     try {
       await api.applockSetTimeout(v);
+      await refreshLock();
+    } catch (e) {
+      alertDialog({ title: "Error", message: String(e) });
+    }
+  }
+  async function disableTotp() {
+    const cur = await promptDialog({
+      title: "Turn off 2FA",
+      message: "Enter your app password to disable two-factor authentication.",
+      placeholder: "App password",
+      confirmText: "Turn off",
+      danger: true,
+    });
+    if (cur == null) return;
+    try {
+      await api.applockTotpDisable(cur);
+      await refreshLock();
+    } catch (e) {
+      alertDialog({ title: "Error", message: String(e) });
+    }
+  }
+  async function changeReauth(v: number) {
+    try {
+      await api.applockSetReauth(v);
       await refreshLock();
     } catch (e) {
       alertDialog({ title: "Error", message: String(e) });
@@ -304,11 +331,41 @@ function AppLockCard() {
           </div>
         </div>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-4">
           <div>
             <label className="text-xs text-muted-foreground">Auto-lock when idle</label>
             <TimeoutRow value={lockTimeout} onChange={changeTimeout} />
           </div>
+
+          {/* Two-factor (TOTP) */}
+          <div className="rounded-lg border border-border bg-background p-3">
+            <div className="flex items-center gap-3">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <ShieldCheck className="size-4" />
+              </span>
+              <div className="flex-1">
+                <div className="text-sm font-medium">Two-factor (2FA)</div>
+                <div className="text-xs text-muted-foreground">
+                  {lockTotp
+                    ? "A 6-digit code from your authenticator app is required to unlock."
+                    : "Add a one-time code from an authenticator app (Google Authenticator, Aegis…)."}
+                </div>
+              </div>
+              {lockTotp ? (
+                <Button variant="outline" size="sm" onClick={disableTotp}>Turn off</Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setTotpSetup(true)}>Enable 2FA</Button>
+              )}
+            </div>
+
+            {lockTotp && (
+              <div className="mt-3 border-t border-border pt-3">
+                <label className="text-xs text-muted-foreground">Require re-authentication every</label>
+                <ReauthRow value={lockReauth} onChange={changeReauth} />
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setLocked(true)}>
               <Lock className="size-4" /> Lock now
@@ -317,6 +374,128 @@ function AppLockCard() {
           </div>
         </div>
       )}
+
+      {totpSetup && (
+        <TotpSetupDialog
+          onClose={() => setTotpSetup(false)}
+          onDone={async () => { setTotpSetup(false); await refreshLock(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const REAUTHS = [
+  { v: 0, l: "Off" },
+  { v: 15, l: "15 min" },
+  { v: 60, l: "1 hour" },
+  { v: 240, l: "4 hours" },
+  { v: 480, l: "8 hours" },
+];
+
+function ReauthRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="mt-1 flex flex-wrap gap-1.5">
+      {REAUTHS.map((t) => (
+        <button
+          key={t.v}
+          onClick={() => onChange(t.v)}
+          className={cn(
+            "rounded-full border px-3 py-1 text-xs transition-colors",
+            value === t.v
+              ? "border-primary bg-primary/15 text-primary"
+              : "border-border bg-background text-muted-foreground hover:border-slate-600 hover:text-foreground"
+          )}
+        >
+          {t.l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Hộp thoại bật 2FA: hiện QR + secret, xác nhận bằng mã 6 số từ authenticator. */
+function TotpSetupDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [setup, setSetup] = useState<{ secret: string; uri: string; qr_svg: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.applockTotpSetup()
+      .then(setSetup)
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  async function confirm() {
+    if (!setup || code.length < 6 || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.applockTotpEnable(setup.secret, code);
+      onDone();
+    } catch {
+      setErr("Wrong code — check the time on your device and try again.");
+      setCode("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-lg font-semibold">Set up two-factor</div>
+        <div className="mt-1 text-sm text-muted-foreground">
+          Scan this QR code with your authenticator app, then enter the 6-digit code to confirm.
+        </div>
+
+        {!setup ? (
+          <div className="mt-6 text-center text-sm text-muted-foreground">
+            {err ?? "Generating secret…"}
+          </div>
+        ) : (
+          <>
+            <div
+              className="mx-auto mt-4 flex size-48 items-center justify-center rounded-lg bg-white p-2 [&>svg]:size-full"
+              dangerouslySetInnerHTML={{ __html: setup.qr_svg }}
+            />
+            <div className="mt-3">
+              <div className="text-xs text-muted-foreground">Or enter this key manually:</div>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs">{setup.secret}</code>
+                <button
+                  title="Copy key"
+                  onClick={() => navigator.clipboard?.writeText(setup.secret)}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Copy className="size-4" />
+                </button>
+              </div>
+            </div>
+            <Input
+              className={cn("mt-4 text-center font-mono tracking-widest", err && "border-destructive")}
+              inputMode="numeric"
+              autoFocus
+              value={code}
+              onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setErr(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") confirm(); }}
+              placeholder="6-digit code"
+            />
+            {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
+          </>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={confirm} disabled={!setup || code.length < 6 || busy}>
+            {busy ? "Verifying…" : "Enable 2FA"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

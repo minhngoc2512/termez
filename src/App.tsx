@@ -64,6 +64,7 @@ export default function App() {
   const locked = useStore((s) => s.locked);
   const lockEnabled = useStore((s) => s.lockEnabled);
   const lockTimeout = useStore((s) => s.lockTimeout);
+  const lockReauth = useStore((s) => s.lockReauth);
   const setLocked = useStore((s) => s.setLocked);
   const refreshLock = useStore((s) => s.refreshLock);
 
@@ -130,6 +131,13 @@ export default function App() {
       window.clearInterval(iv);
     };
   }, [locked, lockEnabled, lockTimeout, setLocked]);
+
+  // Buộc xác thực lại sau N phút kể từ lúc mở khóa (kể cả đang dùng).
+  useEffect(() => {
+    if (locked || !lockEnabled || lockReauth <= 0) return;
+    const t = window.setTimeout(() => setLocked(true), lockReauth * 60_000);
+    return () => window.clearTimeout(t);
+  }, [locked, lockEnabled, lockReauth, setLocked]);
 
   useEffect(() => {
     hostActions.open = openHost;
