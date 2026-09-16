@@ -28,12 +28,13 @@ export function TerminalView({ hostId, themeName, fontSize }: Props) {
     let sessionId: string | null = null;
     const unlisteners: UnlistenFn[] = [];
 
+    const s = useStore.getState();
     const term = new Terminal({
       fontFamily:
         '"JetBrains Mono", "Cascadia Code", "DejaVu Sans Mono", "Ubuntu Mono", monospace',
-      fontSize: fontSize || 13.5,
+      fontSize: fontSize || s.termFontSize || 13.5,
       cursorBlink: true,
-      theme: resolveTheme(themeName),
+      theme: resolveTheme(themeName || s.termTheme),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

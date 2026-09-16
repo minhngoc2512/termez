@@ -1,5 +1,43 @@
 import { create } from "zustand";
 import { api, Group, Host, SshKey, Tunnel, VaultEntry } from "./lib/ipc";
+import { DEFAULT_THEME } from "./lib/themes";
+
+export type AppTheme = "dark" | "light" | "system";
+
+function resolveAppTheme(t: AppTheme): "dark" | "light" {
+  if (t === "system") {
+    try {
+      return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  }
+  return t;
+}
+export function applyAppTheme(t: AppTheme) {
+  try {
+    document.documentElement.dataset.theme = resolveAppTheme(t);
+  } catch {
+    /* ngoài trình duyệt */
+  }
+}
+function ls(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+const initialAppTheme = ls("app-theme", "dark") as AppTheme;
+applyAppTheme(initialAppTheme);
 
 interface AppState {
   groups: Group[];
@@ -13,6 +51,12 @@ interface AppState {
   locked: boolean;
   lockEnabled: boolean;
   lockTimeout: number; // phút; 0 = không tự khóa
+  appTheme: AppTheme;
+  termTheme: string;
+  termFontSize: number;
+  setAppTheme: (t: AppTheme) => void;
+  setTermTheme: (t: string) => void;
+  setTermFontSize: (n: number) => void;
   toggleBroadcast: () => void;
   setLocked: (b: boolean) => void;
   refreshLock: () => Promise<void>;
@@ -31,6 +75,12 @@ export const useStore = create<AppState>((set) => ({
   locked: false,
   lockEnabled: false,
   lockTimeout: 0,
+  appTheme: initialAppTheme,
+  termTheme: ls("term-theme", DEFAULT_THEME),
+  termFontSize: Number(ls("term-font-size", "13.5")) || 13.5,
+  setAppTheme: (t) => { lsSet("app-theme", t); applyAppTheme(t); set({ appTheme: t }); },
+  setTermTheme: (t) => { lsSet("term-theme", t); set({ termTheme: t }); },
+  setTermFontSize: (n) => { lsSet("term-font-size", String(n)); set({ termFontSize: n }); },
   toggleBroadcast: () => set((s) => ({ broadcast: !s.broadcast })),
   setLocked: (b) => set({ locked: b }),
   refreshLock: async () => {

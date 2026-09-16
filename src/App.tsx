@@ -31,7 +31,7 @@ import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
-import { useStore } from "./store";
+import { applyAppTheme, useStore } from "./store";
 import { api, Host } from "./lib/ipc";
 import { SyncConflictDialog } from "./components/SyncConflictDialog";
 
@@ -58,6 +58,7 @@ const EmptyWatermark = () => null;
 
 export default function App() {
   const refresh = useStore((s) => s.refresh);
+  const appTheme = useStore((s) => s.appTheme);
   const broadcast = useStore((s) => s.broadcast);
   const toggleBroadcast = useStore((s) => s.toggleBroadcast);
   const locked = useStore((s) => s.locked);
@@ -79,6 +80,20 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Theme "system": cập nhật khi OS đổi sáng/tối.
+  useEffect(() => {
+    if (appTheme !== "system") return;
+    let mq: MediaQueryList;
+    try {
+      mq = window.matchMedia("(prefers-color-scheme: light)");
+    } catch {
+      return;
+    }
+    const handler = () => applyAppTheme("system");
+    mq.addEventListener?.("change", handler);
+    return () => mq.removeEventListener?.("change", handler);
+  }, [appTheme]);
 
   // Auto-pull data mới nhất từ cloud: lúc khởi động + mỗi 2 phút. Refresh khi có pull.
   useEffect(() => {

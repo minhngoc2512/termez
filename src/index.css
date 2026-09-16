@@ -33,6 +33,35 @@
   --sidebar: #131c30;
 }
 
+/* Light mode: JS đặt data-theme="light" trên <html> khi người dùng chọn. */
+:root[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  --primary: #16a34a;
+  --primary-foreground: #ffffff;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #0f172a;
+
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eef2f7;
+  --accent-foreground: #0f172a;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #16a34a;
+
+  --sidebar: #f1f5f9;
+}
+
 /* Đưa token vào hệ tiện ích của Tailwind (bg-background, text-foreground, border-border…) */
 @theme inline {
   --color-background: var(--background);
