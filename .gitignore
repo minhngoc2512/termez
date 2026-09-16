@@ -26,3 +26,6 @@ dist-ssr
 # KeePass import sidecar (built by src-tauri/sidecar/build.sh)
 src-tauri/binaries/
 src-tauri/sidecar/kdbx-import/target/
+
+# apt repo build output (published to gh-pages, not source)
+/apt-repo/
