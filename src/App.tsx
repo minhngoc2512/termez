@@ -306,7 +306,7 @@ export default function App() {
             <div className="relative min-h-0 flex-1">
               <DockviewReact
                 className={cn(
-                  "dockview-theme-abyss absolute inset-0",
+                  "dockview-theme-abyss-spaced absolute inset-0",
                   broadcast && "ring-2 ring-inset ring-destructive"
                 )}
                 components={components}

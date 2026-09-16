@@ -121,29 +121,31 @@
   }
 }
 
-/* Tab terminal bo tròn kiểu Terminus (dockview) */
-.dockview-theme-abyss {
-  --dv-tabs-and-actions-container-height: 40px;
+/* Tab terminal kiểu Terminus: dùng biến thể "abyss-spaced" (tab bo tròn + có
+   khoảng cách sẵn) rồi map màu về design token của app. Nền tab do rule
+   specificity cao của dockview áp qua các biến này — nên phải set biến, không
+   đè trực tiếp .dv-tab. */
+.dockview-theme-abyss-spaced {
+  --dv-tabs-and-actions-container-height: 42px;
   --dv-tabs-and-actions-container-background-color: var(--sidebar);
-  --dv-tab-border-radius: 9px;
-  --dv-tab-margin-inline: 3px;
-  --dv-tab-margin-block: 5px;
+  --dv-tab-border-radius: 10px;
+  --dv-tab-divider-color: transparent;
   --dv-activegroup-visiblepanel-tab-background-color: var(--card);
   --dv-activegroup-visiblepanel-tab-color: var(--foreground);
-  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-background-color: color-mix(in srgb, var(--muted) 60%, transparent);
   --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
   --dv-inactivegroup-visiblepanel-tab-background-color: var(--card);
   --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: color-mix(in srgb, var(--muted) 60%, transparent);
   --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
 }
-.dockview-theme-abyss .dv-tab {
-  border: 1px solid transparent;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+/* Viền nhẹ cho tab đang mở + hover cho tab chưa mở. */
+.dockview-theme-abyss-spaced .dv-tab {
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.dockview-theme-abyss .dv-tab.dv-active-tab {
-  border-color: var(--border);
+.dockview-theme-abyss-spaced .dv-tab.dv-active-tab {
+  border: 1px solid var(--border);
 }
-.dockview-theme-abyss .dv-tab.dv-inactive-tab:hover {
-  background-color: var(--accent);
+.dockview-theme-abyss-spaced .dv-tab.dv-inactive-tab:hover {
+  color: var(--foreground);
 }
