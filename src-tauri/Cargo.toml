@@ -38,6 +38,10 @@ argon2 = "0.6.0"
 chacha20poly1305 = "0.11.0"
 rand = "0.8"
 reqwest = { version = "=0.12.9", default-features = false, features = ["rustls-tls", "json"] }
+totp-rs = { version = "6.0.0", default-features = false, features = ["std"] }
+tauri-plugin-dialog = "2.7.3"
+# Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì
+# crate `keepass` 0.14 dùng thế hệ RustCrypto cũ, xung đột với russh 0.63.
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

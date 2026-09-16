@@ -6,6 +6,7 @@ mod keys;
 mod sftp;
 mod ssh;
 mod sync;
+mod totp;
 mod tunnel;
 
 use commands::AppState;
@@ -16,6 +17,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -63,6 +65,12 @@ pub fn run() {
             commands::tunnel_active,
             commands::tunnel_start,
             commands::tunnel_stop,
+            commands::get_entries,
+            commands::upsert_entry,
+            commands::delete_entry,
+            commands::entry_password,
+            commands::entry_totp_code,
+            commands::import_kdbx,
             commands::sync_get_config,
             commands::sync_save_config,
             commands::sync_set_auto,

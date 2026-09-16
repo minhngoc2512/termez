@@ -1,5 +1,5 @@
 use crate::conn::{AuthMethod, JumpConfig, ProxyConfig};
-use crate::db::{self, Group, Host, HostInput, SshKey, Tunnel, TunnelInput};
+use crate::db::{self, Group, Host, HostInput, SshKey, Tunnel, TunnelInput, VaultEntry, VaultEntryInput};
 use crate::keychain;
 use crate::keys;
 use crate::sftp::{FileEntry, SftpManager};
@@ -361,6 +361,196 @@ pub async fn tunnel_stop(app: AppHandle, state: State<'_, AppState>, id: String)
     Ok(())
 }
 
+// ----- Password manager entries -----
+
+#[tauri::command]
+pub async fn get_entries(state: State<'_, AppState>) -> R<Vec<VaultEntry>> {
+    db::list_entries(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn upsert_entry(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    input: VaultEntryInput,
+) -> R<VaultEntry> {
+    let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    // Mật khẩu: chỉ ghi khi có nhập (để trống khi sửa = giữ nguyên).
+    if let Some(pw) = &input.password {
+        if !pw.is_empty() {
+            keychain::set_secret(&keychain::entry_password(&id), pw).map_err(e)?;
+        }
+    }
+    // TOTP: Some(non-empty) = đặt; Some("") = xóa; None = giữ nguyên.
+    let has_totp = match &input.totp_secret {
+        Some(s) if !s.is_empty() => {
+            keychain::set_secret(&keychain::entry_totp(&id), s).map_err(e)?;
+            true
+        }
+        Some(_) => {
+            keychain::delete_secret(&keychain::entry_totp(&id)).ok();
+            false
+        }
+        None => keychain::get_secret(&keychain::entry_totp(&id)).map_err(e)?.is_some(),
+    };
+
+    let entry = db::upsert_entry(&state.db, &input, &id, has_totp).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(entry)
+}
+
+#[tauri::command]
+pub async fn delete_entry(app: AppHandle, state: State<'_, AppState>, id: String) -> R<()> {
+    keychain::delete_secret(&keychain::entry_password(&id)).ok();
+    keychain::delete_secret(&keychain::entry_totp(&id)).ok();
+    db::delete_entry(&state.db, &id).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
+}
+
+/// Lấy mật khẩu của entry (để copy). Trả về chuỗi rỗng nếu chưa có.
+#[tauri::command]
+pub async fn entry_password(_state: State<'_, AppState>, id: String) -> R<String> {
+    Ok(keychain::get_secret(&keychain::entry_password(&id))
+        .map_err(e)?
+        .unwrap_or_default())
+}
+
+#[derive(serde::Serialize)]
+pub struct TotpCode {
+    code: String,
+    remaining: u64,
+}
+
+#[tauri::command]
+pub async fn entry_totp_code(_state: State<'_, AppState>, id: String) -> R<TotpCode> {
+    let secret = keychain::get_secret(&keychain::entry_totp(&id))
+        .map_err(e)?
+        .ok_or_else(|| "No TOTP secret for this entry".to_string())?;
+    let (code, remaining) = crate::totp::code(&secret).map_err(e)?;
+    Ok(TotpCode { code, remaining })
+}
+
+#[derive(serde::Deserialize)]
+struct ImportedEntry {
+    title: String,
+    username: Option<String>,
+    password: Option<String>,
+    url: Option<String>,
+    notes: Option<String>,
+    totp: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SidecarOutput {
+    ok: bool,
+    #[serde(default)]
+    entries: Vec<ImportedEntry>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Tìm binary sidecar `kdbx-import`: cạnh app (bản đóng gói/dev do Tauri copy),
+/// hoặc trong thư mục `binaries/` của src-tauri (khi chạy dev từ mã nguồn).
+fn kdbx_sidecar_path() -> Option<std::path::PathBuf> {
+    let matches = |name: &std::ffi::OsStr| {
+        let s = name.to_string_lossy();
+        s == "kdbx-import" || s.starts_with("kdbx-import-") || s.starts_with("kdbx-import.")
+    };
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            if let Ok(rd) = std::fs::read_dir(dir) {
+                for ent in rd.flatten() {
+                    if matches(&ent.file_name()) {
+                        return Some(ent.path());
+                    }
+                }
+            }
+        }
+    }
+    let mut dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    dev.push("binaries");
+    if let Ok(rd) = std::fs::read_dir(&dev) {
+        for ent in rd.flatten() {
+            if matches(&ent.file_name()) {
+                return Some(ent.path());
+            }
+        }
+    }
+    None
+}
+
+/// Import các entry từ file KeePass (.kdbx) vào vault, qua sidecar tách biệt.
+#[tauri::command]
+pub async fn import_kdbx(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    password: String,
+) -> R<String> {
+    let bin = kdbx_sidecar_path()
+        .ok_or_else(|| "Không tìm thấy trình import KeePass (kdbx-import).".to_string())?;
+
+    let imported = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<ImportedEntry>> {
+        use std::io::Write;
+        let mut child = std::process::Command::new(&bin)
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        // Ghi mật khẩu vào stdin rồi đóng (EOF) để sidecar đọc xong.
+        child
+            .stdin
+            .take()
+            .expect("stdin piped")
+            .write_all(password.as_bytes())?;
+        let output = child.wait_with_output()?;
+        let parsed: SidecarOutput = serde_json::from_slice(&output.stdout)
+            .map_err(|e| anyhow::anyhow!("Kết quả sidecar không hợp lệ: {e}"))?;
+        if !parsed.ok {
+            anyhow::bail!(parsed.error.unwrap_or_else(|| "Import thất bại.".into()));
+        }
+        Ok(parsed.entries)
+    })
+    .await
+    .map_err(e)?
+    .map_err(e)?;
+
+    let mut count = 0;
+    for it in imported {
+        let id = uuid::Uuid::new_v4().to_string();
+        if let Some(pw) = &it.password {
+            if !pw.is_empty() {
+                keychain::set_secret(&keychain::entry_password(&id), pw).map_err(e)?;
+            }
+        }
+        let has_totp = if let Some(t) = &it.totp {
+            keychain::set_secret(&keychain::entry_totp(&id), t).map_err(e)?;
+            true
+        } else {
+            false
+        };
+        let input = VaultEntryInput {
+            id: Some(id.clone()),
+            title: it.title,
+            username: it.username,
+            url: it.url,
+            notes: it.notes,
+            tags: None,
+            folder: Some("Imported".into()),
+            linked_host_id: None,
+            password: None,
+            totp_secret: None,
+        };
+        db::upsert_entry(&state.db, &input, &id, has_totp).await.map_err(e)?;
+        count += 1;
+    }
+    schedule_autosync(app, &state);
+    Ok(format!("Imported {count} entries from KeePass"))
+}
+
 // ----- Cloud sync (GitHub) -----
 
 const SYNC_PAT: &str = "sync:pat";
@@ -417,6 +607,7 @@ async fn build_and_push(
     let groups = db::list_groups(db).await?;
     let keys = db::list_keys(db).await?;
     let tunnels = db::list_tunnels(db).await?;
+    let entries = db::list_entries(db).await?;
 
     let mut secrets = std::collections::HashMap::new();
     for h in &hosts {
@@ -433,8 +624,15 @@ async fn build_and_push(
             }
         }
     }
+    for en in &entries {
+        for acc in [keychain::entry_password(&en.id), keychain::entry_totp(&en.id)] {
+            if let Some(v) = keychain::get_secret(&acc)? {
+                secrets.insert(acc, v);
+            }
+        }
+    }
 
-    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, secrets };
+    let vault = sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, secrets };
     let json = serde_json::to_vec(&vault)?;
     let enc = sync::encrypt(&json, master)?;
     let content_b64 = base64::engine::general_purpose::STANDARD.encode(&enc);
@@ -528,9 +726,16 @@ pub async fn sync_pull(state: State<'_, AppState>, master: String) -> R<String> 
     let json = sync::decrypt(&enc, &master).map_err(e)?;
     let vault: sync::Vault = serde_json::from_slice(&json).map_err(e)?;
 
-    db::import_all(&state.db, &vault.hosts, &vault.groups, &vault.keys, &vault.tunnels)
-        .await
-        .map_err(e)?;
+    db::import_all(
+        &state.db,
+        &vault.hosts,
+        &vault.groups,
+        &vault.keys,
+        &vault.tunnels,
+        &vault.entries,
+    )
+    .await
+    .map_err(e)?;
     for (acc, val) in &vault.secrets {
         keychain::set_secret(acc, val).map_err(e)?;
     }
@@ -623,3 +828,4 @@ pub async fn ssh_resize(state: State<'_, AppState>, id: String, cols: u32, rows:
 pub async fn ssh_disconnect(state: State<'_, AppState>, id: String) -> R<()> {
     state.ssh.disconnect(&id).await.map_err(e)
 }
+

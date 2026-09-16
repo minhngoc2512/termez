@@ -1,0 +1,20 @@
+# Sidecar riêng, KHÔNG nằm trong workspace của app.
+# Lý do: keepass 0.14 dùng thế hệ RustCrypto ổn định (aes 0.8 / crypto-common 0.1),
+# xung đột với russh 0.63 (crypto-common 0.2). Tách graph phụ thuộc để tránh xung đột.
+[package]
+name = "kdbx-import"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "kdbx-import"
+path = "src/main.rs"
+
+[dependencies]
+keepass = "0.14.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 2
+strip = true

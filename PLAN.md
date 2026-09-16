@@ -26,7 +26,9 @@
 - [x] **Đồng bộ cloud qua GitHub (git-based vault, E2E encryption)**
 - [x] **Password manager (vault riêng: group/entry/search, generator, TOTP, liên kết SSH host)**
 
-Ngoài phạm vi MVP (cân nhắc sau): OAuth device flow cho GitHub, sync đa máy per-item, import/export .kdbx, mobile app, team sharing.
+- [x] **Import từ KeePassXC (.kdbx)** — qua sidecar riêng (xem Phase 6)
+
+Ngoài phạm vi MVP (cân nhắc sau): OAuth device flow cho GitHub, sync đa máy per-item, export .kdbx, mobile app, team sharing.
 
 ---
 
@@ -319,13 +321,24 @@ terminus/
 - [ ] TODO: pull-before-push cảnh báo xung đột, recovery code, tự tạo repo
 
 ### Phase 6 — Password manager (vault riêng)
-- [ ] Model group/entry trong vault đã mã hóa (dùng lại crypto Phase 5)
-- [ ] UI cây group + bảng entry (Title/Username/URL/Notes/tags), thêm/sửa/xóa
-- [ ] Search + lọc tag; copy username/password (auto-clear clipboard)
-- [ ] Password generator + đo độ mạnh (`zxcvbn`) + màn Weak/Expired
-- [ ] TOTP: lưu secret, sinh mã 6 số + đếm ngược, copy 1 click
-- [ ] Liên kết entry ↔ SSH host (dùng entry làm credential kết nối)
+- [x] Model group/entry trong DB + secret (password/TOTP) lưu keychain; gom vào vault E2E khi sync
+- [x] UI list + detail entry (Title/Username/URL/Notes/tags/folder), thêm/sửa/xóa (`VaultView`, `EntryForm`)
+- [x] Search + nhóm theo folder; copy username/password (auto-clear clipboard 20s)
+- [x] Password generator + đo độ mạnh (thanh strength) trong form
+- [x] TOTP: lưu secret, sinh mã 6 số + đếm ngược, copy 1 click (`TotpBadge`, cmd `entry_totp_code`)
+- [x] Liên kết entry ↔ SSH host (nút "Open SSH" trong detail)
+- [x] **Import từ KeePassXC (.kdbx)**: file picker (tauri-plugin-dialog) → sidecar `kdbx-import` giải mã →
+      map Title/Username/Password/URL/Notes/TOTP vào vault (secret vào keychain), gắn folder "Imported"
+  - TOTP: đọc field `otp` (otpauth:// URL, KeePassXC hiện đại) **và** fallback field cũ `TOTP Seed`
+    (KeeOtp/thủ công) mà crate keepass bỏ qua. Giới hạn: chỉ giữ secret; **Steam encoder / period·digits /
+    SHA256·SHA512 tùy chỉnh không được giữ** (app sinh mã SHA1/6 số/30s) — mã sẽ sai với entry phi chuẩn.
 - [ ] Auto-lock khi timeout/đóng app
+
+> **Ghi chú kiến trúc import .kdbx:** crate `keepass` 0.14 dùng thế hệ RustCrypto cũ (aes 0.8 /
+> crypto-common 0.1), **xung đột** với russh 0.63 (crypto-common 0.2) → không build in-process được.
+> Giải pháp: binary sidecar riêng `src-tauri/sidecar/kdbx-import` (graph phụ thuộc tách biệt), Tauri
+> đóng gói qua `bundle.externalBin`. Build bằng `src-tauri/sidecar/build.sh` (đã gắn vào
+> `beforeBuildCommand`). App gọi sidecar qua `std::process` (mật khẩu master truyền qua stdin, kết quả JSON).
 
 ### Phase 7 — Settings, giao diện & hoàn thiện
 - [ ] Cửa sổ Settings dạng sidebar; lưu key-value vào SQLite + đưa vào vault sync

@@ -44,6 +44,12 @@ pub fn key_passphrase(key_id: &str) -> String {
 pub fn proxy_password(host_id: &str) -> String {
     format!("proxypass:{host_id}")
 }
+pub fn entry_password(entry_id: &str) -> String {
+    format!("entrypass:{entry_id}")
+}
+pub fn entry_totp(entry_id: &str) -> String {
+    format!("entrytotp:{entry_id}")
+}
 
 #[cfg(test)]
 mod tests {

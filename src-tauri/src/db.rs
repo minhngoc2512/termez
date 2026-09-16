@@ -180,6 +180,26 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS vault_entries (
+            id             TEXT PRIMARY KEY,
+            title          TEXT NOT NULL,
+            username       TEXT,
+            url            TEXT,
+            notes          TEXT,
+            tags           TEXT,
+            folder         TEXT,
+            linked_host_id TEXT,
+            has_totp       INTEGER NOT NULL DEFAULT 0,
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     // Thêm cột cho DB cũ nếu thiếu (idempotent).
     let add_cols: &[(&str, &str)] = &[
         ("key_id", "TEXT"),
@@ -474,6 +494,95 @@ pub async fn delete_tunnel(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+// ----- Password manager entries -----
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct VaultEntry {
+    pub id: String,
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub tags: Option<String>,
+    pub folder: Option<String>,
+    pub linked_host_id: Option<String>,
+    pub has_totp: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultEntryInput {
+    pub id: Option<String>,
+    pub title: String,
+    pub username: Option<String>,
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub tags: Option<String>,
+    pub folder: Option<String>,
+    pub linked_host_id: Option<String>,
+    /// secret → keychain, không vào DB
+    pub password: Option<String>,
+    pub totp_secret: Option<String>,
+}
+
+pub async fn list_entries(pool: &SqlitePool) -> anyhow::Result<Vec<VaultEntry>> {
+    let rows = sqlx::query_as::<_, VaultEntry>(
+        "SELECT * FROM vault_entries ORDER BY title COLLATE NOCASE",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn get_entry(pool: &SqlitePool, id: &str) -> anyhow::Result<VaultEntry> {
+    let row = sqlx::query_as::<_, VaultEntry>("SELECT * FROM vault_entries WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
+pub async fn upsert_entry(
+    pool: &SqlitePool,
+    input: &VaultEntryInput,
+    id: &str,
+    has_totp: bool,
+) -> anyhow::Result<VaultEntry> {
+    let ts = now();
+    sqlx::query(
+        r#"INSERT INTO vault_entries (id, title, username, url, notes, tags, folder,
+           linked_host_id, has_totp, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET title=excluded.title, username=excluded.username,
+             url=excluded.url, notes=excluded.notes, tags=excluded.tags, folder=excluded.folder,
+             linked_host_id=excluded.linked_host_id, has_totp=excluded.has_totp,
+             updated_at=excluded.updated_at"#,
+    )
+    .bind(id)
+    .bind(&input.title)
+    .bind(&input.username)
+    .bind(&input.url)
+    .bind(&input.notes)
+    .bind(&input.tags)
+    .bind(&input.folder)
+    .bind(&input.linked_host_id)
+    .bind(has_totp as i64)
+    .bind(ts)
+    .bind(ts)
+    .execute(pool)
+    .await?;
+    get_entry(pool, id).await
+}
+
+pub async fn delete_entry(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM vault_entries WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // ----- Sync: nhập toàn bộ dữ liệu (khôi phục vault) -----
 
 /// Xóa sạch rồi ghi lại toàn bộ từ vault. (Secret khôi phục riêng vào keychain.)
@@ -483,9 +592,30 @@ pub async fn import_all(
     groups: &[Group],
     keys: &[SshKey],
     tunnels: &[Tunnel],
+    entries: &[VaultEntry],
 ) -> anyhow::Result<()> {
-    for t in ["tunnels", "hosts", "ssh_keys", "groups"] {
+    for t in ["tunnels", "hosts", "ssh_keys", "groups", "vault_entries"] {
         sqlx::query(&format!("DELETE FROM {t}")).execute(pool).await?;
+    }
+    for en in entries {
+        sqlx::query(
+            r#"INSERT INTO vault_entries (id, title, username, url, notes, tags, folder,
+               linked_host_id, has_totp, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(&en.id)
+        .bind(&en.title)
+        .bind(&en.username)
+        .bind(&en.url)
+        .bind(&en.notes)
+        .bind(&en.tags)
+        .bind(&en.folder)
+        .bind(&en.linked_host_id)
+        .bind(en.has_totp)
+        .bind(en.created_at)
+        .bind(en.updated_at)
+        .execute(pool)
+        .await?;
     }
     for g in groups {
         sqlx::query("INSERT INTO groups (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)")

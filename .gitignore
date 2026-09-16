@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# KeePass import sidecar (built by src-tauri/sidecar/build.sh)
+src-tauri/binaries/
+src-tauri/sidecar/kdbx-import/target/

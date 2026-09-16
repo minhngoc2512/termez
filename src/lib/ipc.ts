@@ -62,6 +62,33 @@ export interface TunnelStatus {
   error: string | null;
 }
 
+export interface VaultEntry {
+  id: string;
+  title: string;
+  username: string | null;
+  url: string | null;
+  notes: string | null;
+  tags: string | null;
+  folder: string | null;
+  linked_host_id: string | null;
+  has_totp: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface VaultEntryInput {
+  id?: string | null;
+  title: string;
+  username: string | null;
+  url: string | null;
+  notes: string | null;
+  tags: string | null;
+  folder: string | null;
+  linked_host_id: string | null;
+  password: string | null;
+  totp_secret: string | null;
+}
+
 export interface SshKey {
   id: string;
   name: string;
@@ -155,6 +182,15 @@ export const api = {
     invoke<void>("fs_delete", { endpoint, path, isDir }),
   sftpTransfer: (srcEndpoint: string, srcPath: string, dstEndpoint: string, dstPath: string) =>
     invoke<string>("sftp_transfer", { srcEndpoint, srcPath, dstEndpoint, dstPath }),
+
+  getEntries: () => invoke<VaultEntry[]>("get_entries"),
+  upsertEntry: (input: VaultEntryInput) => invoke<VaultEntry>("upsert_entry", { input }),
+  deleteEntry: (id: string) => invoke<void>("delete_entry", { id }),
+  entryPassword: (id: string) => invoke<string>("entry_password", { id }),
+  entryTotpCode: (id: string) =>
+    invoke<{ code: string; remaining: number }>("entry_totp_code", { id }),
+  importKdbx: (path: string, password: string) =>
+    invoke<string>("import_kdbx", { path, password }),
 
   syncGetConfig: () =>
     invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),

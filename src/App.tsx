@@ -6,7 +6,7 @@ import {
   DockviewApi,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Cable } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Cable, KeyRound } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { HomeView } from "./components/HomeView";
@@ -17,7 +17,9 @@ import { SyncDialog } from "./components/SyncDialog";
 import { TerminalView } from "./components/TerminalView";
 import { SftpView } from "./components/SftpView";
 import { ForwardingView } from "./components/ForwardingView";
+import { VaultView } from "./components/VaultView";
 import { PanelTab } from "./components/PanelTab";
+import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useStore } from "./store";
@@ -39,6 +41,7 @@ const components = {
   ),
   sftp: () => <SftpView />,
   forwarding: () => <ForwardingView />,
+  vault: () => <VaultView />,
 };
 
 const tabComponents = { info: PanelTab };
@@ -60,6 +63,11 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    hostActions.open = openHost;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
@@ -111,6 +119,15 @@ export default function App() {
     });
   }
 
+  function openVault() {
+    apiRef.current?.addPanel({
+      id: crypto.randomUUID(),
+      component: "vault",
+      tabComponent: "info",
+      title: "Passwords",
+    });
+  }
+
   function openAdd() {
     setEditing(null);
     setFormOpen(true);
@@ -154,6 +171,10 @@ export default function App() {
           <Button variant="outline" size="sm" onClick={openForwarding} title="Port forwarding / tunnels">
             <Cable className="size-4" />
             Tunnels
+          </Button>
+          <Button variant="outline" size="sm" onClick={openVault} title="Password manager">
+            <KeyRound className="size-4" />
+            Passwords
           </Button>
           <HostSearch onOpen={openHost} />
         </div>
