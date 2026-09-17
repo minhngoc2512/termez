@@ -7,6 +7,8 @@ live, and back everything up to your own GitHub repo with end-to-end encryption.
 
 > **Term** (terminal) + **Ez** (easy).
 
+**[🌐 Website](https://minhngoc2512.github.io/termez/)** · **[⬇ Download](https://github.com/minhngoc2512/termez/releases/latest)** · **[📦 apt repo](https://minhngoc2512.github.io/termez/apt)**
+
 ---
 
 ## Install (Linux)
