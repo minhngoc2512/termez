@@ -61,25 +61,22 @@ jobs:
 
       - run: pnpm install
 
-      # macOS: build a UNIVERSAL sidecar (arm64 + x86_64 lipo'd together) so the
-      # universal app bundle can embed it. tauri.conf's beforeBuildCommand also
-      # builds a host-arch sidecar, which is harmless here.
+      # macOS universal: tauri builds each arch separately and lipos the APP, so
+      # it needs a sidecar for EACH arch triple (not a lipo'd "universal" one).
       - name: Add macOS universal Rust targets
         if: matrix.platform == 'macos-14'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Build universal sidecar (macOS)
+      - name: Build per-arch sidecars (macOS)
         if: matrix.platform == 'macos-14'
         shell: bash
         run: |
           crate=src-tauri/sidecar/kdbx-import
-          cargo build --release --manifest-path "$crate/Cargo.toml" --target aarch64-apple-darwin
-          cargo build --release --manifest-path "$crate/Cargo.toml" --target x86_64-apple-darwin
           mkdir -p src-tauri/binaries
-          lipo -create \
-            "$crate/target/aarch64-apple-darwin/release/kdbx-import" \
-            "$crate/target/x86_64-apple-darwin/release/kdbx-import" \
-            -output src-tauri/binaries/kdbx-import-universal-apple-darwin
+          for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --manifest-path "$crate/Cargo.toml" --target "$triple"
+            cp "$crate/target/$triple/release/kdbx-import" "src-tauri/binaries/kdbx-import-$triple"
+          done
 
       - uses: tauri-apps/tauri-action@v0
         env:
