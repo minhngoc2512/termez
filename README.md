@@ -1,6 +1,6 @@
 # ⌘ Termez
 
-A fast, native-feeling **SSH / SFTP manager** for Linux — a Termius-style desktop
+A fast, native-feeling **SSH / SFTP manager** for Linux, macOS and Windows — a Termius-style desktop
 client built with **Tauri (Rust)** + **React**. Manage a fleet of servers, split
 terminals, browse and move files, keep passwords and cloud storage, watch hosts
 live, and back everything up to your own GitHub repo with end-to-end encryption.
@@ -11,9 +11,12 @@ live, and back everything up to your own GitHub repo with end-to-end encryption.
 
 ---
 
-## Install (Linux)
+## Download & install
 
-### Via apt — recommended
+Prebuilt installers for **Linux, macOS and Windows** are attached to every
+[release](https://github.com/minhngoc2512/termez/releases/latest).
+
+### Linux — via apt (recommended)
 
 ```bash
 curl -fsSL https://minhngoc2512.github.io/termez/apt/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null
@@ -49,13 +52,29 @@ Download the latest `Termez_*_amd64.deb` from
 sudo apt install ./Termez_*_amd64.deb
 ```
 
-### Portable `.AppImage`
+### Linux — portable `.AppImage`
 
 Download `Termez_*_amd64.AppImage`, then:
 
 ```bash
 chmod +x Termez_*_amd64.AppImage && ./Termez_*_amd64.AppImage
 ```
+
+### macOS
+
+Download **`Termez_*_universal.dmg`** (one build for both Apple Silicon and
+Intel), open it and drag Termez to Applications.
+
+> The app is **not notarized**, so the first launch is blocked by Gatekeeper.
+> Right-click the app → **Open** → **Open**, or run once:
+> `xattr -dr com.apple.quarantine /Applications/Termez.app`
+
+### Windows
+
+Download **`Termez_*_x64_en-US.msi`** (or `Termez_*_x64-setup.exe`) and run it.
+
+> The installer is **unsigned**, so SmartScreen may warn: click **More info →
+> Run anyway**. Requires the WebView2 runtime (preinstalled on Windows 11).
 
 An `.rpm` is also attached to each release. Maintainer packaging steps live in
 [PACKAGING.md](PACKAGING.md).

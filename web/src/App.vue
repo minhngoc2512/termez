@@ -4,16 +4,15 @@ import { ref } from "vue";
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.2.10";
+const VERSION = "v0.2.11";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
   `echo "deb [signed-by=/usr/share/keyrings/termez.gpg] ${APT_URL} ./" | sudo tee /etc/apt/sources.list.d/termez.list\n` +
   `sudo apt update && sudo apt install termez`;
-const debCmd = "sudo apt install ./Termez_*_amd64.deb";
 const updateCmd = "sudo apt update && sudo apt install --only-upgrade termez";
 
-const tab = ref("apt");
+const tab = ref("linux");
 const copied = ref("");
 function copy(text, key) {
   navigator.clipboard?.writeText(text).then(() => {
@@ -62,22 +61,22 @@ const features = [
       <div class="mx-auto grid max-w-6xl items-center gap-12 px-5 pt-20 pb-16 lg:grid-cols-[1.05fr_1fr]">
         <div>
           <p class="font-mono text-xs text-muted">
-            <span class="text-prompt">//</span> SSH · SFTP · Workspaces · Linux
+            <span class="text-prompt">//</span> SSH · SFTP · Workspaces · Linux · macOS · Windows
           </p>
           <h1 class="mt-5 font-mono text-4xl font-bold leading-[1.08] tracking-tight sm:text-[3.35rem]">
             A terminal manager<br />that thinks in
             <span class="text-magenta">panes<span class="cursor align-middle"></span></span>
           </h1>
           <p class="mt-6 max-w-lg text-lg leading-relaxed text-muted">
-            Termez is a native SSH &amp; SFTP client for Linux. Split terminals into workspaces,
-            keep every session alive as you switch, and manage keys, passwords and cloud storage
-            in one window.
+            Termez is a native SSH &amp; SFTP client for Linux, macOS and Windows. Split terminals
+            into workspaces, keep every session alive as you switch, and manage keys, passwords
+            and cloud storage in one window.
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3">
-            <a href="#install" class="rounded-md bg-prompt px-5 py-2.5 font-medium text-ink hover:brightness-110">Install via apt</a>
+            <a href="#install" class="rounded-md bg-prompt px-5 py-2.5 font-medium text-ink hover:brightness-110">Install</a>
             <a :href="RELEASES" target="_blank" rel="noopener"
                class="rounded-md border border-line px-5 py-2.5 font-medium text-fg hover:border-muted hover:bg-panel">
-              Download .deb
+              Download
             </a>
           </div>
           <p class="mt-4 font-mono text-xs text-muted">Open source · Built with Tauri + Rust</p>
@@ -149,38 +148,60 @@ eth0 <span class="text-magenta">167.172.74.61</span>
 
     <!-- Install -->
     <section id="install" class="mx-auto max-w-3xl px-5 py-16">
-      <p class="text-center font-mono text-xs text-muted"><span class="text-prompt">//</span> Ubuntu · Debian</p>
-      <h2 class="mt-2 text-center font-mono text-3xl font-bold tracking-tight">Install on Linux</h2>
-      <p class="mt-3 text-center text-muted">Add the repo once and stay current with <code class="font-mono text-prompt">apt upgrade</code>.</p>
+      <p class="text-center font-mono text-xs text-muted"><span class="text-prompt">//</span> Linux · macOS · Windows</p>
+      <h2 class="mt-2 text-center font-mono text-3xl font-bold tracking-tight">Install</h2>
+      <p class="mt-3 text-center text-muted">Native builds for every desktop. Pick your platform.</p>
 
       <div class="mx-auto mt-8 flex w-fit gap-1 rounded-lg border border-line bg-panel p-1 font-mono text-sm">
-        <button @click="tab = 'apt'" :class="tab === 'apt' ? 'bg-prompt text-ink' : 'text-muted hover:text-fg'" class="rounded-md px-4 py-1.5 font-medium">apt</button>
-        <button @click="tab = 'deb'" :class="tab === 'deb' ? 'bg-prompt text-ink' : 'text-muted hover:text-fg'" class="rounded-md px-4 py-1.5 font-medium">.deb</button>
+        <button v-for="os in ['linux', 'macOS', 'windows']" :key="os" @click="tab = os.toLowerCase()"
+                :class="tab === os.toLowerCase() ? 'bg-prompt text-ink' : 'text-muted hover:text-fg'"
+                class="rounded-md px-4 py-1.5 font-medium">{{ os }}</button>
       </div>
 
-      <div class="mt-6 overflow-hidden rounded-xl border border-line bg-panel">
-        <div class="flex items-center gap-2 border-b border-line px-3.5 py-2 font-mono text-[11px] text-muted">
-          <span class="size-1.5 rounded-full bg-prompt"></span> install.sh
-          <button @click="copy(tab === 'apt' ? aptCmd : debCmd, tab)"
-                  class="ml-auto rounded border border-line px-2 py-0.5 text-[11px] text-muted hover:bg-panel2 hover:text-fg">
-            {{ copied === tab ? "copied ✓" : "copy" }}
-          </button>
+      <!-- Linux -->
+      <template v-if="tab === 'linux'">
+        <div class="mt-6 overflow-hidden rounded-xl border border-line bg-panel">
+          <div class="flex items-center gap-2 border-b border-line px-3.5 py-2 font-mono text-[11px] text-muted">
+            <span class="size-1.5 rounded-full bg-prompt"></span> install.sh
+            <button @click="copy(aptCmd, 'apt')"
+                    class="ml-auto rounded border border-line px-2 py-0.5 text-[11px] text-muted hover:bg-panel2 hover:text-fg">
+              {{ copied === 'apt' ? "copied ✓" : "copy" }}
+            </button>
+          </div>
+          <pre class="overflow-x-auto whitespace-pre-wrap p-5 font-mono text-[12.5px] leading-relaxed text-fg"><span class="text-muted"># Ubuntu / Debian — add the repo, then stay current with apt upgrade</span>
+<span class="text-prompt">$</span> {{ aptCmd }}</pre>
         </div>
-        <pre v-if="tab === 'apt'" class="overflow-x-auto whitespace-pre-wrap p-5 font-mono text-[12.5px] leading-relaxed text-fg"><span class="text-prompt">$</span> {{ aptCmd }}</pre>
-        <pre v-else class="overflow-x-auto p-5 font-mono text-[12.5px] leading-relaxed text-fg"><span class="text-muted"># download Termez_*_amd64.deb from Releases, then</span>
-<span class="text-prompt">$</span> {{ debCmd }}</pre>
+        <div class="mt-4 rounded-xl border border-line bg-panel p-5">
+          <div class="font-mono text-sm">Keeping it updated</div>
+          <p class="mt-1 text-sm text-muted">Upgrade Termez only — or let it prompt you from Settings → About.</p>
+          <code class="mt-3 block overflow-x-auto rounded-md border border-line bg-ink px-3 py-2 font-mono text-xs text-prompt">{{ updateCmd }}</code>
+        </div>
+        <p class="mt-4 text-center text-sm text-muted">
+          Prefer a one-off file? <b class="text-fg">.deb</b>, <b class="text-fg">.AppImage</b> and <b class="text-fg">.rpm</b> are on every
+          <a :href="RELEASES" target="_blank" rel="noopener" class="text-magenta hover:underline">release</a>.
+        </p>
+      </template>
+
+      <!-- macOS -->
+      <div v-else-if="tab === 'macos'" class="mt-6 rounded-xl border border-line bg-panel p-6">
+        <div class="font-mono text-sm text-fg">Termez_<span class="text-muted">*</span>_universal.dmg</div>
+        <p class="mt-1.5 text-sm text-muted">One universal build for <b class="text-fg">Apple Silicon</b> and <b class="text-fg">Intel</b>. Open the .dmg and drag Termez to Applications.</p>
+        <a :href="RELEASES" target="_blank" rel="noopener" class="mt-4 inline-block rounded-md bg-prompt px-5 py-2.5 font-medium text-ink hover:brightness-110">Download for macOS</a>
+        <div class="mt-4 rounded-lg border border-line bg-ink p-3 text-xs text-muted">
+          <span class="text-amber">Note</span> — not notarized yet: on first launch right-click the app → <b class="text-fg">Open</b>, or run once
+          <code class="text-prompt">xattr -dr com.apple.quarantine /Applications/Termez.app</code>
+        </div>
       </div>
 
-      <div class="mt-6 rounded-xl border border-line bg-panel p-5">
-        <div class="font-mono text-sm">Keeping it updated</div>
-        <p class="mt-1 text-sm text-muted">Upgrade Termez only — or let it prompt you from Settings → About.</p>
-        <code class="mt-3 block overflow-x-auto rounded-md border border-line bg-ink px-3 py-2 font-mono text-xs text-prompt">{{ updateCmd }}</code>
+      <!-- Windows -->
+      <div v-else class="mt-6 rounded-xl border border-line bg-panel p-6">
+        <div class="font-mono text-sm text-fg">Termez_<span class="text-muted">*</span>_x64_en-US.msi</div>
+        <p class="mt-1.5 text-sm text-muted">Windows 10/11 (x64). Also available as an NSIS <b class="text-fg">setup .exe</b>.</p>
+        <a :href="RELEASES" target="_blank" rel="noopener" class="mt-4 inline-block rounded-md bg-prompt px-5 py-2.5 font-medium text-ink hover:brightness-110">Download for Windows</a>
+        <div class="mt-4 rounded-lg border border-line bg-ink p-3 text-xs text-muted">
+          <span class="text-amber">Note</span> — unsigned: SmartScreen may warn, click <b class="text-fg">More info → Run anyway</b>. Needs the WebView2 runtime (built into Windows 11).
+        </div>
       </div>
-
-      <p class="mt-6 text-center text-sm text-muted">
-        Portable <b class="text-fg">.AppImage</b> and <b class="text-fg">.rpm</b> builds are attached to every
-        <a :href="RELEASES" target="_blank" rel="noopener" class="text-magenta hover:underline">release</a>.
-      </p>
     </section>
 
     <!-- Footer: tmux-style status line -->
