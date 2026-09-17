@@ -73,7 +73,9 @@ fn resolve_auth(host: &Host) -> R<AuthMethod> {
             } else if let Some(path) = &host.private_key_path {
                 let pem = std::fs::read_to_string(expand_tilde(path))
                     .map_err(|err| format!("đọc key file lỗi: {err}"))?;
-                Ok(AuthMethod::Key { pem, passphrase: None })
+                // Passphrase cho key file (nếu có) lấy từ ô password đã lưu.
+                let passphrase = keychain::get_secret(&keychain::host_password(&host.id)).map_err(e)?;
+                Ok(AuthMethod::Key { pem, passphrase })
             } else {
                 Err("Host dùng key nhưng chưa chọn key".into())
             }
@@ -165,11 +167,10 @@ pub async fn upsert_host(app: AppHandle, state: State<'_, AppState>, mut input: 
     let host = db::upsert_host(&state.db, input).await.map_err(e)?;
 
     // Lưu mật khẩu vào keychain (chỉ khi có nhập; để trống khi sửa = giữ nguyên).
-    if host.auth_type == "password" {
-        if let Some(pw) = password {
-            if !pw.is_empty() {
-                keychain::set_secret(&keychain::host_password(&host.id), &pw).map_err(e)?;
-            }
+    // Lưu cho MỌI auth type: dùng làm mật khẩu đăng nhập, hoặc passphrase cho key file.
+    if let Some(pw) = password {
+        if !pw.is_empty() {
+            keychain::set_secret(&keychain::host_password(&host.id), &pw).map_err(e)?;
         }
     }
     if let Some(pp) = proxy_password {

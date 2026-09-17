@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { api, AuthType, Host, HostInput } from "../lib/ipc";
 import { promptDialog, alertDialog } from "../lib/dialogs";
 import { TERM_THEMES } from "../lib/themes";
@@ -54,6 +55,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
   const [username, setUsername] = useState("root");
   const [authType, setAuthType] = useState<AuthType>("password");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [keyPath, setKeyPath] = useState("");
   const [keyId, setKeyId] = useState<string | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -122,7 +124,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
       port: Number(port) || 22,
       username: username.trim(),
       auth_type: authType,
-      password: authType === "password" ? password : null,
+      password: password || null,
       private_key_path: authType === "key" ? keyPath || null : null,
       passphrase: null,
       key_id: authType === "key" ? keyId : null,
@@ -186,19 +188,31 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
           </Select>
         </Field>
 
-        {authType === "password" && (
-          <Field label="Password">
+        <Field label={authType === "key" ? "Password / key passphrase" : "Password"}>
+          <div className="relative">
             <Input
-              type="password"
+              type={showPw ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={host ? "(leave blank to keep current)" : ""}
+              className="pr-9"
             />
-            <p className="text-xs text-muted-foreground">
-              🔒 Password is stored in the OS keychain, not in the database.
-            </p>
-          </Field>
-        )}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setShowPw((v) => !v)}
+              title={showPw ? "Hide" : "Show"}
+              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {showPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {authType === "key"
+              ? "🔒 Optional — dùng làm passphrase cho key file, hoặc mật khẩu dự phòng. Lưu trong OS keychain."
+              : "🔒 Password is stored in the OS keychain, not in the database."}
+          </p>
+        </Field>
         {authType === "key" && (
           <>
             <Field label="Choose a saved key">
