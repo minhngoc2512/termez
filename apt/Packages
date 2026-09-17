@@ -1,14 +1,14 @@
 Package: termez
-Version: 0.2.10
+Version: 0.2.11
 Architecture: amd64
 Maintainer: you
-Installed-Size: 17570
+Installed-Size: 17574
 Depends: libwebkit2gtk-4.1-0, libgtk-3-0
-Filename: ./Termez_0.2.10_amd64.deb
-Size: 7825540
-MD5sum: 39e9e7401fdb6bec92464816911b8203
-SHA1: 06b122724f4c4cbef890668ae27abf04644b39a1
-SHA256: 69fcd042445bf4a79057d8a58298ec98b1f992341491ce7ceb0196f46d0ed243
+Filename: ./Termez_0.2.11_amd64.deb
+Size: 7825724
+MD5sum: f2bed2eb0204f6abf41d4b1b14afa237
+SHA1: b2537d7737e4e0b8875c3bfa9be617a8e06da0c5
+SHA256: 22f52cc8f71854cf0fcc0d7f20fa1aadacb246ffac99c3c449ba1c3df075a59e
 Priority: optional
 Description: Termez — SSH/SFTP manager
  (none)
