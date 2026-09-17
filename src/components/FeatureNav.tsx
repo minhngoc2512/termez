@@ -1,5 +1,6 @@
 import {
   Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud,
+  SquareTerminal, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "../store";
@@ -36,13 +37,21 @@ const TOP: Item[] = [
   { id: "storage", label: "Storage", icon: HardDrive },
 ];
 
+export interface Session {
+  id: string;
+  title: string;
+}
+
 interface Props {
   section: Section;
   onSelect: (s: Section) => void;
   onSync: () => void;
+  sessions?: Session[];
+  activeSession?: string | null;
+  onOpenSession?: (id: string) => void;
 }
 
-export function FeatureNav({ section, onSelect, onSync }: Props) {
+export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSession, onOpenSession }: Props) {
   const hosts = useStore((s) => s.hosts);
   const entries = useStore((s) => s.entries);
   const tunnels = useStore((s) => s.tunnels);
@@ -58,6 +67,32 @@ export function FeatureNav({ section, onSelect, onSync }: Props) {
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-border bg-sidebar">
       <nav className="flex-1 overflow-y-auto p-2">
+        {sessions.length > 0 && onOpenSession && (
+          <div className="mb-2 border-b border-border pb-2">
+            <div className="flex items-center gap-1.5 px-3 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <SquareTerminal className="size-3.5" />
+              Open sessions
+              <span className="ml-auto tabular-nums opacity-70">{sessions.length}</span>
+            </div>
+            {sessions.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => onOpenSession(s.id)}
+                title={s.title}
+                className={cn(
+                  "mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                  s.id === activeSession
+                    ? "bg-primary/15 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                )}
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span className="flex-1 truncate text-left">{s.title}</span>
+                <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+              </button>
+            ))}
+          </div>
+        )}
         {TOP.map((it) => (
           <NavRow
             key={it.id}

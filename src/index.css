@@ -149,3 +149,7 @@
 .dockview-theme-abyss-spaced .dv-tab.dv-inactive-tab:hover {
   color: var(--foreground);
 }
+/* Chừa một khoảng trống giữa thanh tab và nội dung (terminal…) cho thoáng. */
+.dockview-theme-abyss-spaced .dv-content-container {
+  padding-top: 6px;
+}

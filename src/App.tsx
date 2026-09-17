@@ -76,6 +76,9 @@ export default function App() {
   const [preset, setPreset] = useState<{ address: string; port: number } | null>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
+  const [sessions, setSessions] = useState<{ id: string; title: string }[]>([]);
+  const [activeSession, setActiveSession] = useState<string | null>(null);
   const apiRef = useRef<DockviewApi | null>(null);
   // Nếu cửa sổ được mở bằng "Duplicate in a new window" → tự mở terminal host này.
   const dupRef = useRef<string | null>(
@@ -166,13 +169,29 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hosts, locked, booting]);
 
+  function syncSessions(api: DockviewApi) {
+    setSessions(api.panels.map((p) => ({ id: p.id, title: p.title || "shell" })));
+    setActiveSession(api.activePanel?.id ?? null);
+  }
+
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
     event.api.onDidLayoutChange(() => {
+      syncSessions(event.api);
       // Đóng terminal cuối cùng → quay lại màn Home.
       if (event.api.panels.length === 0) setShowHome(true);
     });
+    event.api.onDidActivePanelChange(() => setActiveSession(event.api.activePanel?.id ?? null));
+    syncSessions(event.api);
     maybeOpenDup();
+  }
+
+  // Quay lại một phiên đang mở (từ danh sách trong menu).
+  function focusSession(id: string) {
+    const p = apiRef.current?.getPanel(id);
+    if (!p) return;
+    p.api.setActive();
+    setShowHome(false);
   }
 
   function selectSection(s: Section) {
@@ -273,7 +292,14 @@ export default function App() {
       />
       <div className="flex min-h-0 flex-1">
         {showHome && (
-          <FeatureNav section={section} onSelect={selectSection} onSync={() => setSyncOpen(true)} />
+          <FeatureNav
+            section={section}
+            onSelect={selectSection}
+            onSync={() => setSyncOpen(true)}
+            sessions={sessions}
+            activeSession={activeSession}
+            onOpenSession={focusSession}
+          />
         )}
 
         <main className="relative flex min-w-0 flex-1 flex-col">
