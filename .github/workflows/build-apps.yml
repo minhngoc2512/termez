@@ -67,16 +67,22 @@ jobs:
         if: matrix.platform == 'macos-14'
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Build per-arch sidecars (macOS)
+      - name: Build macOS sidecars (per-arch + universal)
         if: matrix.platform == 'macos-14'
         shell: bash
         run: |
           crate=src-tauri/sidecar/kdbx-import
           mkdir -p src-tauri/binaries
+          # per-arch: needed while tauri compiles each arch separately
           for triple in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --release --manifest-path "$crate/Cargo.toml" --target "$triple"
             cp "$crate/target/$triple/release/kdbx-import" "src-tauri/binaries/kdbx-import-$triple"
           done
+          # universal: needed while tauri bundles the universal .app
+          lipo -create \
+            src-tauri/binaries/kdbx-import-aarch64-apple-darwin \
+            src-tauri/binaries/kdbx-import-x86_64-apple-darwin \
+            -output src-tauri/binaries/kdbx-import-universal-apple-darwin
 
       - uses: tauri-apps/tauri-action@v0
         env:
