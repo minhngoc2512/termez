@@ -8,7 +8,7 @@ import {
   SerializedDockview,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Home, Code2, X } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Home, Code2, X, Plus } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
@@ -31,6 +31,7 @@ import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { UpdateManager } from "./components/UpdateManager";
+import { HostPicker } from "./components/HostPicker";
 import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ export default function App() {
   const [preset, setPreset] = useState<{ address: string; port: number } | null>(null);
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
   const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string }[]>([]);
   const [split, setSplit] = useState(false);
@@ -455,6 +457,7 @@ export default function App() {
             sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
             activeSession={activeTask}
             onOpenSession={switchTask}
+            onCloseSession={closeTask}
           />
         )}
 
@@ -517,6 +520,13 @@ export default function App() {
                     </button>
                   </div>
                 ))}
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  title="Open a new SSH session"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Plus className="size-4" />
+                </button>
               </div>
             )}
             <div className="relative min-h-0 flex-1">
@@ -560,6 +570,7 @@ export default function App() {
       <SyncConflictDialog />
       <DialogHost />
       <UpdateManager />
+      <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
     </div>
   );
 }

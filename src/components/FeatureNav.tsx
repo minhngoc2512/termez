@@ -1,6 +1,6 @@
 import {
   Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud,
-  SquareTerminal, ChevronRight,
+  SquareTerminal, ChevronRight, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "../store";
@@ -49,9 +49,10 @@ interface Props {
   sessions?: Session[];
   activeSession?: string | null;
   onOpenSession?: (id: string) => void;
+  onCloseSession?: (id: string) => void;
 }
 
-export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSession, onOpenSession }: Props) {
+export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSession, onOpenSession, onCloseSession }: Props) {
   const hosts = useStore((s) => s.hosts);
   const entries = useStore((s) => s.entries);
   const tunnels = useStore((s) => s.tunnels);
@@ -75,12 +76,12 @@ export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSes
               <span className="ml-auto tabular-nums opacity-70">{sessions.length}</span>
             </div>
             {sessions.map((s) => (
-              <button
+              <div
                 key={s.id}
                 onClick={() => onOpenSession(s.id)}
                 title={s.title}
                 className={cn(
-                  "mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                  "group mb-0.5 flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors",
                   s.id === activeSession
                     ? "bg-primary/15 font-medium text-primary"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -88,8 +89,18 @@ export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSes
               >
                 <span className="size-1.5 shrink-0 rounded-full bg-primary" />
                 <span className="flex-1 truncate text-left">{s.title}</span>
-                <ChevronRight className="size-3.5 shrink-0 opacity-60" />
-              </button>
+                {onCloseSession ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onCloseSession(s.id); }}
+                    title="Close session"
+                    className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-border hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                ) : (
+                  <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+                )}
+              </div>
             ))}
           </div>
         )}
