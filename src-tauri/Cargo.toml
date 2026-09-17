@@ -29,8 +29,8 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 anyhow = "1"
-# keychain OS: backend secret-service thuần Rust (zbus) — không cần libdbus/openssl
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+# keychain OS: chọn backend theo từng nền tảng ở [target.*] bên dưới.
+keyring = { version = "3", default-features = false }
 russh-sftp = "3.0.0"
 tokio-socks = "0.5.3"
 async-http-proxy = { version = "1.2.5", features = ["basic-auth", "runtime-tokio"] }
@@ -51,6 +51,18 @@ tauri-plugin-dialog = "2.7.3"
 tauri-plugin-clipboard-manager = "2.3.3"
 # Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì
 # crate `keepass` 0.14 dùng thế hệ RustCrypto cũ, xung đột với russh 0.63.
+
+# keyring backend theo nền tảng:
+#  - Linux: secret-service thuần Rust (zbus) + crypto-rust (không cần libdbus/openssl)
+#  - macOS: Keychain hệ thống ; Windows: Credential Manager
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
