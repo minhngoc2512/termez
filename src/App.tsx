@@ -25,6 +25,7 @@ import { KnownHostsPage } from "./components/KnownHostsPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { StoragePage } from "./components/StoragePage";
 import { PanelTab } from "./components/PanelTab";
+import { TaskBar } from "./components/TaskBar";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { hostActions } from "./lib/hostActions";
@@ -77,7 +78,7 @@ export default function App() {
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
-  const [sessions, setSessions] = useState<{ id: string; title: string }[]>([]);
+  const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string }[]>([]);
   const [activeSession, setActiveSession] = useState<string | null>(null);
   const apiRef = useRef<DockviewApi | null>(null);
   // Nếu cửa sổ được mở bằng "Duplicate in a new window" → tự mở terminal host này.
@@ -170,7 +171,13 @@ export default function App() {
   }, [hosts, locked, booting]);
 
   function syncSessions(api: DockviewApi) {
-    setSessions(api.panels.map((p) => ({ id: p.id, title: p.title || "shell" })));
+    setSessions(
+      api.panels.map((p) => ({
+        id: p.id,
+        title: p.title || "shell",
+        hostId: (p.params as { hostId?: string } | undefined)?.hostId,
+      }))
+    );
     setActiveSession(api.activePanel?.id ?? null);
   }
 
@@ -186,12 +193,46 @@ export default function App() {
     maybeOpenDup();
   }
 
-  // Quay lại một phiên đang mở (từ danh sách trong menu).
+  // Quay lại một phiên đang mở (từ danh sách trong menu / thanh task).
   function focusSession(id: string) {
     const p = apiRef.current?.getPanel(id);
     if (!p) return;
     p.api.setActive();
     setShowHome(false);
+  }
+  function closeSession(id: string) {
+    apiRef.current?.getPanel(id)?.api.close();
+  }
+  // Nhân bản một phiên terminal: mở thêm tab cùng host/params.
+  function duplicateSession(id: string) {
+    const api = apiRef.current;
+    const p = api?.getPanel(id);
+    if (!api || !p || !(p.params as { hostId?: string } | undefined)?.hostId) return;
+    api.addPanel({
+      id: crypto.randomUUID(),
+      component: "terminal",
+      tabComponent: "info",
+      title: p.title || "shell",
+      params: { ...(p.params || {}) },
+    });
+  }
+  // Nhân bản sang cửa sổ mới (chỉ với tab terminal của host).
+  async function duplicateSessionWindow(id: string) {
+    const hostId = (apiRef.current?.getPanel(id)?.params as { hostId?: string } | undefined)?.hostId;
+    if (!hostId) return;
+    const title = apiRef.current?.getPanel(id)?.title || "Termez";
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      new WebviewWindow(`term-${crypto.randomUUID().slice(0, 8)}`, {
+        url: `index.html?dup=${encodeURIComponent(hostId)}`,
+        title,
+        width: 1000,
+        height: 680,
+        decorations: false,
+      });
+    } catch {
+      /* ngoài Tauri */
+    }
   }
 
   function selectSection(s: Section) {
@@ -329,10 +370,19 @@ export default function App() {
                 <HostSearch onOpen={openHost} />
               </div>
             </div>
+            {/* Thanh task cố định (ngoài dockview) — không bị cuộn theo terminal */}
+            <TaskBar
+              tasks={sessions}
+              activeId={activeSession}
+              onSelect={focusSession}
+              onClose={closeSession}
+              onDuplicate={duplicateSession}
+              onDuplicateWindow={duplicateSessionWindow}
+            />
             <div className="relative min-h-0 flex-1">
               <DockviewReact
                 className={cn(
-                  "dockview-theme-abyss-spaced absolute inset-0",
+                  "dockview-theme-abyss absolute inset-0",
                   broadcast && "ring-2 ring-inset ring-destructive"
                 )}
                 components={components}

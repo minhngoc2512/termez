@@ -121,36 +121,12 @@
   }
 }
 
-/* Tab terminal kiểu Terminus: dùng biến thể "abyss-spaced" (tab bo tròn + có
-   khoảng cách sẵn) rồi map màu về design token của app. Nền tab do rule
-   specificity cao của dockview áp qua các biến này — nên phải set biến, không
-   đè trực tiếp .dv-tab. */
-.dockview-theme-abyss-spaced {
-  --dv-tabs-and-actions-container-height: 42px;
-  --dv-tabs-and-actions-container-background-color: var(--sidebar);
-  --dv-tab-border-radius: 10px;
-  --dv-tab-divider-color: transparent;
-  --dv-activegroup-visiblepanel-tab-background-color: var(--card);
-  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
-  --dv-activegroup-hiddenpanel-tab-background-color: color-mix(in srgb, var(--muted) 60%, transparent);
-  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--card);
-  --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: color-mix(in srgb, var(--muted) 60%, transparent);
-  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+/* Tab list được render RIÊNG (component TaskBar cố định ở trên) nên ẩn hẳn
+   thanh tab nội bộ của dockview — tránh việc tab bị cuộn theo terminal và bỏ
+   phần khoảng trống do theme "spaced" tạo ra. Dockview chỉ còn lo phần nội dung. */
+.dockview-theme-abyss .dv-tabs-and-actions-container {
+  display: none !important;
 }
-/* Viền nhẹ cho tab đang mở + hover cho tab chưa mở. */
-.dockview-theme-abyss-spaced .dv-tab {
-  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-.dockview-theme-abyss-spaced .dv-tab.dv-active-tab {
-  border: 1px solid var(--border);
-}
-.dockview-theme-abyss-spaced .dv-tab.dv-inactive-tab:hover {
-  color: var(--foreground);
-}
-/* Nội dung panel phải clip trong khung, không cho tràn ra ngoài (tránh việc
-   cuộn terminal lại kéo theo cả thanh tab ở trên). */
-.dockview-theme-abyss-spaced .dv-content-container {
+.dockview-theme-abyss .dv-content-container {
   overflow: hidden;
 }

@@ -140,7 +140,5 @@ export function TerminalView({ hostId, themeName, fontSize }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // pt lớn hơn để chừa khoảng trống giữa thanh tab và nội dung; box-border nên
-  // padding nằm gọn trong khung (không gây tràn/cuộn).
-  return <div className="box-border h-full w-full px-2 pb-1.5 pt-2.5" ref={containerRef} />;
+  return <div className="box-border h-full w-full p-1.5" ref={containerRef} />;
 }
