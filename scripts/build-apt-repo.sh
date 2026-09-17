@@ -26,6 +26,25 @@ if [[ -z "${GPG_KEY_ID:-}" ]]; then
   exit 1
 fi
 
+# Nhập passphrase MỘT LẦN ở đầu (trước khi build ~vài phút) rồi ký bằng loopback
+# pinentry — tránh việc pinentry hết giờ chờ sau khi build xong.
+# Bỏ trống (Enter) nếu key không có passphrase, hoặc muốn để gpg-agent tự xử lý.
+GPG_SIGN=(gpg --default-key "$GPG_KEY_ID" --batch --yes)
+if [[ -n "${GPG_PASSPHRASE:-}" ]]; then
+  GPG_SIGN=(gpg --default-key "$GPG_KEY_ID" --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE")
+elif [[ -t 0 ]]; then
+  read -rsp "GPG passphrase for $GPG_KEY_ID (Enter to skip → dùng agent): " _pp; echo
+  if [[ -n "$_pp" ]]; then
+    GPG_SIGN=(gpg --default-key "$GPG_KEY_ID" --batch --yes --pinentry-mode loopback --passphrase "$_pp")
+    # Kiểm tra passphrase đúng ngay để khỏi build xong mới biết sai.
+    if ! printf 'x' | "${GPG_SIGN[@]}" -o /dev/null -abs 2>/dev/null; then
+      echo "!! Passphrase sai (hoặc ký thử thất bại)." >&2
+      exit 1
+    fi
+  fi
+  unset _pp
+fi
+
 echo "==> Building release bundle (.deb)…"
 cd "$ROOT"
 pnpm tauri build --bundles deb
@@ -55,8 +74,8 @@ apt-ftparchive \
   release . > Release
 
 # Sign it (both detached and inline, so old and new apt clients both work).
-gpg --default-key "$GPG_KEY_ID" --batch --yes -abs -o Release.gpg Release
-gpg --default-key "$GPG_KEY_ID" --batch --yes --clearsign -o InRelease Release
+"${GPG_SIGN[@]}" -abs -o Release.gpg Release
+"${GPG_SIGN[@]}" --clearsign -o InRelease Release
 
 # Export the public key users must trust.
 gpg --export "$GPG_KEY_ID" > termez-archive-keyring.gpg
