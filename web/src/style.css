@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Bảng màu Termez: slate nền tối + xanh "run green" */
+@theme {
+  --color-brand: #22c55e;
+  --color-brand-fg: #052e16;
+  --color-ink: #0b0f16;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+html,
+body {
+  background: #090d14;
+  color: #e6edf3;
+  scroll-behavior: smooth;
+}
+::selection {
+  background: color-mix(in srgb, var(--color-brand) 35%, transparent);
+}
