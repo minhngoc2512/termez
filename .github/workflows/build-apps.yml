@@ -27,9 +27,11 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04    # Linux: .deb / .AppImage / .rpm
-          - platform: macos-14        # macOS Apple Silicon (arm64): .dmg / .app
-          - platform: macos-13        # macOS Intel (x86_64): .dmg / .app
+            args: ""
+          - platform: macos-14        # macOS universal (Intel + Apple Silicon): one .dmg
+            args: "--target universal-apple-darwin"
           - platform: windows-latest  # Windows: .msi / NSIS .exe
+            args: ""
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -59,6 +61,26 @@ jobs:
 
       - run: pnpm install
 
+      # macOS: build a UNIVERSAL sidecar (arm64 + x86_64 lipo'd together) so the
+      # universal app bundle can embed it. tauri.conf's beforeBuildCommand also
+      # builds a host-arch sidecar, which is harmless here.
+      - name: Add macOS universal Rust targets
+        if: matrix.platform == 'macos-14'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build universal sidecar (macOS)
+        if: matrix.platform == 'macos-14'
+        shell: bash
+        run: |
+          crate=src-tauri/sidecar/kdbx-import
+          cargo build --release --manifest-path "$crate/Cargo.toml" --target aarch64-apple-darwin
+          cargo build --release --manifest-path "$crate/Cargo.toml" --target x86_64-apple-darwin
+          mkdir -p src-tauri/binaries
+          lipo -create \
+            "$crate/target/aarch64-apple-darwin/release/kdbx-import" \
+            "$crate/target/x86_64-apple-darwin/release/kdbx-import" \
+            -output src-tauri/binaries/kdbx-import-universal-apple-darwin
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -67,3 +89,4 @@ jobs:
           releaseName: Termez ${{ github.event.inputs.tag || github.ref_name }}
           releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
