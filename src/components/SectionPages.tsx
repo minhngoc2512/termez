@@ -112,10 +112,13 @@ type UpdateState = { current: string; latest: string; has_update: boolean; url: 
 
 /** Thông tin app + phiên bản + kiểm tra cập nhật từ GitHub Releases. */
 function AboutCard() {
+  const autoUpdate = useStore((s) => s.autoUpdate);
+  const setAutoUpdate = useStore((s) => s.setAutoUpdate);
   const [version, setVersion] = useState<string>("");
   const [checking, setChecking] = useState(false);
   const [upd, setUpd] = useState<UpdateState | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => { api.appVersion().then(setVersion).catch(() => {}); }, []);
 
@@ -129,6 +132,17 @@ function AboutCard() {
       setErr(String(e));
     } finally {
       setChecking(false);
+    }
+  }
+  async function update() {
+    setUpdating(true);
+    try {
+      await api.updateApply();
+      await api.appRelaunch();
+    } catch (e) {
+      alertDialog({ title: "Update failed", message: String(e) });
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -150,6 +164,20 @@ function AboutCard() {
         </Button>
       </div>
 
+      {/* Bật/tắt tự động kiểm tra & nhắc cập nhật */}
+      <label className="mt-3 flex cursor-pointer items-center gap-3 border-t border-border pt-3">
+        <input
+          type="checkbox"
+          checked={autoUpdate}
+          onChange={(e) => setAutoUpdate(e.target.checked)}
+          className="size-4 accent-[var(--primary)]"
+        />
+        <div className="flex-1">
+          <div className="text-sm">Auto-check for updates</div>
+          <div className="text-xs text-muted-foreground">Nhắc cập nhật khi mở app nếu có bản mới.</div>
+        </div>
+      </label>
+
       {err && <p className="mt-3 text-sm text-destructive">Couldn't check updates: {err}</p>}
 
       {upd && !err && (
@@ -164,9 +192,12 @@ function AboutCard() {
                 {upd.notes.slice(0, 1200)}
               </pre>
             )}
-            <div className="mt-3 flex justify-end">
-              <Button size="sm" onClick={() => openUrl(upd.url).catch(() => {})}>
-                <Download className="size-4" /> Get v{upd.latest}
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => openUrl(upd.url).catch(() => {})}>
+                Release page
+              </Button>
+              <Button size="sm" onClick={update} disabled={updating}>
+                <Download className="size-4" /> {updating ? "Updating…" : "Update now"}
               </Button>
             </div>
           </div>

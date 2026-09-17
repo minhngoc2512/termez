@@ -56,6 +56,8 @@ interface AppState {
   appTheme: AppTheme;
   termTheme: string;
   termFontSize: number;
+  autoUpdate: boolean;
+  setAutoUpdate: (b: boolean) => void;
   setAppTheme: (t: AppTheme) => void;
   setTermTheme: (t: string) => void;
   setTermFontSize: (n: number) => void;
@@ -82,6 +84,8 @@ export const useStore = create<AppState>((set) => ({
   appTheme: initialAppTheme,
   termTheme: ls("term-theme", DEFAULT_THEME),
   termFontSize: Number(ls("term-font-size", "13.5")) || 13.5,
+  autoUpdate: ls("auto-update", "1") === "1",
+  setAutoUpdate: (b) => { lsSet("auto-update", b ? "1" : "0"); set({ autoUpdate: b }); },
   setAppTheme: (t) => { lsSet("app-theme", t); applyAppTheme(t); set({ appTheme: t }); },
   setTermTheme: (t) => { lsSet("term-theme", t); set({ termTheme: t }); },
   setTermFontSize: (n) => { lsSet("term-font-size", String(n)); set({ termFontSize: n }); },

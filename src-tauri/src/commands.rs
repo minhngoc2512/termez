@@ -905,6 +905,55 @@ fn version_gt(a: &str, b: &str) -> bool {
     false
 }
 
+/// Cập nhật gói `termez` qua apt. Dùng `pkexec` để polkit hỏi mật khẩu (app
+/// KHÔNG chạm vào mật khẩu). Chỉ hợp lệ khi cài qua apt/.deb.
+#[tauri::command]
+pub async fn update_apply() -> R<String> {
+    let out = tokio::process::Command::new("pkexec")
+        .arg("sh")
+        .arg("-c")
+        .arg("apt-get update -qq && apt-get install -y --only-upgrade termez")
+        .output()
+        .await
+        .map_err(|err| format!("Không chạy được pkexec/apt: {err}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        let code = out.status.code().unwrap_or(-1);
+        // pkexec: 126 = user hủy/không có quyền, 127 = lỗi xác thực.
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if code == 126 || code == 127 {
+            Err("Đã hủy hoặc xác thực thất bại.".into())
+        } else {
+            Err(format!("apt lỗi ({code}): {}", stderr.trim()))
+        }
+    }
+}
+
+/// Lấy changelog (body) của một release theo tag — dùng cho popup sau khi update.
+#[tauri::command]
+pub async fn release_notes(tag: String) -> R<String> {
+    let url = format!("https://api.github.com/repos/minhngoc2512/termez/releases/tags/{tag}");
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header("User-Agent", "Termez")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(e)?;
+    if !resp.status().is_success() {
+        return Ok(String::new());
+    }
+    let j: serde_json::Value = resp.json().await.map_err(e)?;
+    Ok(j["body"].as_str().unwrap_or("").to_string())
+}
+
+/// Khởi động lại app (sau khi cập nhật xong).
+#[tauri::command]
+pub fn app_relaunch(app: AppHandle) {
+    app.restart();
+}
+
 // ----- Quét mạng (TCP connect) -----
 
 #[tauri::command]

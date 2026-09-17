@@ -30,6 +30,7 @@ import { PanelTab } from "./components/PanelTab";
 import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
+import { UpdateManager } from "./components/UpdateManager";
 import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -558,6 +559,7 @@ export default function App() {
       <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
       <SyncConflictDialog />
       <DialogHost />
+      <UpdateManager />
     </div>
   );
 }
