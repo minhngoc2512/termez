@@ -24,15 +24,15 @@ function copy(text, key) {
 
 // key = a terminal-ish label; dot = ANSI accent, cycled
 const features = [
-  { key: "terminal", dot: "bg-prompt", title: "Multiplexed terminals", desc: "Real SSH PTYs with split panes and Broadcast — type once, send to every pane at once." },
-  { key: "workspaces", dot: "bg-magenta", title: "Workspaces that tile", desc: "Every host is a task. Drag one onto another to split into a workspace, and switch back and forth without dropping a session." },
-  { key: "vault", dot: "bg-cyan", title: "Password vault", desc: "A KeePassXC-style vault: folder tree, .kdbx import, TOTP, and a clipboard that clears itself after ten seconds." },
-  { key: "storage", dot: "bg-amber", title: "Object storage", desc: "Browse S3, R2, GCS and MinIO — upload, download, and move files between buckets like SFTP." },
-  { key: "monitor", dot: "bg-prompt", title: "Live host metrics", desc: "Real-time CPU, memory, disk and network charts, opened as their own tab." },
-  { key: "scan", dot: "bg-magenta", title: "Network scan", desc: "Discover LAN devices by IP, MAC and vendor, sweep hosts and ports, and add a host in one click." },
-  { key: "secure", dot: "bg-cyan", title: "Locked down", desc: "Secrets live in the OS keychain, an app lock adds TOTP, and host keys are verified on first use." },
-  { key: "sync", dot: "bg-amber", title: "Encrypted cloud sync", desc: "Back up your vault to a private GitHub repo, end-to-end encrypted, with automatic pull and conflict handling." },
-  { key: "tunnel", dot: "bg-prompt", title: "Tunnels & DNS", desc: "Reach hosts through ProxyCommand, import ~/.ssh/config, and manage Cloudflare DNS from the app." },
+  { key: "Terminal", dot: "bg-prompt", title: "Multiplexed terminals", desc: "Real SSH PTYs with split panes and Broadcast — type once, send to every pane at once." },
+  { key: "Workspaces", dot: "bg-magenta", title: "Workspaces that tile", desc: "Every host is a task. Drag one onto another to split into a workspace, and switch back and forth without dropping a session." },
+  { key: "Vault", dot: "bg-cyan", title: "Password vault", desc: "A KeePassXC-style vault: folder tree, .kdbx import, TOTP, and a clipboard that clears itself after ten seconds." },
+  { key: "Storage", dot: "bg-amber", title: "Object storage", desc: "Browse S3, R2, GCS and MinIO — upload, download, and move files between buckets like SFTP." },
+  { key: "Monitor", dot: "bg-prompt", title: "Live host metrics", desc: "Real-time CPU, memory, disk and network charts, opened as their own tab." },
+  { key: "Scan", dot: "bg-magenta", title: "Network scan", desc: "Discover LAN devices by IP, MAC and vendor, sweep hosts and ports, and add a host in one click." },
+  { key: "Secure", dot: "bg-cyan", title: "Locked down", desc: "Secrets live in the OS keychain, an app lock adds TOTP, and host keys are verified on first use." },
+  { key: "Sync", dot: "bg-amber", title: "Encrypted cloud sync", desc: "Back up your vault to a private GitHub repo, end-to-end encrypted, with automatic pull and conflict handling." },
+  { key: "Tunnel", dot: "bg-prompt", title: "Tunnels & DNS", desc: "Reach hosts through ProxyCommand, import ~/.ssh/config, and manage Cloudflare DNS from the app." },
 ];
 </script>
 
@@ -42,12 +42,12 @@ const features = [
     <header class="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-2.5 font-mono text-sm">
         <span class="text-prompt">⌘</span>
-        <span class="font-semibold tracking-tight">termez</span>
+        <span class="font-semibold tracking-tight">Termez</span>
         <span class="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">{{ VERSION }}</span>
         <nav class="ml-auto hidden items-center gap-6 text-muted sm:flex">
-          <a href="#features" class="hover:text-fg">features</a>
-          <a href="#install" class="hover:text-fg">install</a>
-          <a :href="GITHUB" target="_blank" rel="noopener" class="hover:text-fg">github</a>
+          <a href="#features" class="hover:text-fg">Features</a>
+          <a href="#install" class="hover:text-fg">Install</a>
+          <a :href="GITHUB" target="_blank" rel="noopener" class="hover:text-fg">GitHub</a>
         </nav>
         <a :href="RELEASES" target="_blank" rel="noopener"
            class="ml-auto rounded-md bg-prompt px-3 py-1.5 font-medium text-ink hover:brightness-110 sm:ml-0">
@@ -62,7 +62,7 @@ const features = [
       <div class="mx-auto grid max-w-6xl items-center gap-12 px-5 pt-20 pb-16 lg:grid-cols-[1.05fr_1fr]">
         <div>
           <p class="font-mono text-xs text-muted">
-            <span class="text-prompt">//</span> ssh · sftp · workspaces · linux
+            <span class="text-prompt">//</span> SSH · SFTP · Workspaces · Linux
           </p>
           <h1 class="mt-5 font-mono text-4xl font-bold leading-[1.08] tracking-tight sm:text-[3.35rem]">
             A terminal manager<br />that thinks in
@@ -80,7 +80,7 @@ const features = [
               Download .deb
             </a>
           </div>
-          <p class="mt-4 font-mono text-xs text-muted">Open source · built with Tauri + Rust</p>
+          <p class="mt-4 font-mono text-xs text-muted">Open source · Built with Tauri + Rust</p>
         </div>
 
         <!-- Workspace mockup: two tiled panes + a status line (the signature) -->
@@ -127,7 +127,7 @@ eth0 <span class="text-magenta">167.172.74.61</span>
     <section id="features" class="mx-auto max-w-6xl px-5 py-16">
       <div class="flex items-end justify-between gap-4">
         <div>
-          <p class="font-mono text-xs text-muted"><span class="text-prompt">//</span> everything in one window</p>
+          <p class="font-mono text-xs text-muted"><span class="text-prompt">//</span> Everything in one window</p>
           <h2 class="mt-2 font-mono text-3xl font-bold tracking-tight">No more tool-switching</h2>
         </div>
         <span class="hidden font-mono text-xs text-muted sm:block">9 panes</span>
@@ -149,7 +149,7 @@ eth0 <span class="text-magenta">167.172.74.61</span>
 
     <!-- Install -->
     <section id="install" class="mx-auto max-w-3xl px-5 py-16">
-      <p class="text-center font-mono text-xs text-muted"><span class="text-prompt">//</span> ubuntu · debian</p>
+      <p class="text-center font-mono text-xs text-muted"><span class="text-prompt">//</span> Ubuntu · Debian</p>
       <h2 class="mt-2 text-center font-mono text-3xl font-bold tracking-tight">Install on Linux</h2>
       <p class="mt-3 text-center text-muted">Add the repo once and stay current with <code class="font-mono text-prompt">apt upgrade</code>.</p>
 
@@ -186,11 +186,11 @@ eth0 <span class="text-magenta">167.172.74.61</span>
     <!-- Footer: tmux-style status line -->
     <footer class="border-t border-line">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3 font-mono text-xs">
-        <span class="rounded bg-prompt px-2 py-0.5 text-ink">⌘ termez</span>
-        <span class="text-muted">ssh / sftp manager</span>
+        <span class="rounded bg-prompt px-2 py-0.5 text-ink">⌘ Termez</span>
+        <span class="text-muted">SSH / SFTP manager</span>
         <span class="ml-auto text-muted">{{ VERSION }}</span>
-        <a :href="GITHUB" target="_blank" rel="noopener" class="text-muted hover:text-fg">github</a>
-        <a :href="RELEASES" target="_blank" rel="noopener" class="text-muted hover:text-fg">releases</a>
+        <a :href="GITHUB" target="_blank" rel="noopener" class="text-muted hover:text-fg">GitHub</a>
+        <a :href="RELEASES" target="_blank" rel="noopener" class="text-muted hover:text-fg">Releases</a>
       </div>
     </footer>
   </div>
