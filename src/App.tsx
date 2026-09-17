@@ -4,9 +4,11 @@ import {
   DockviewReadyEvent,
   IDockviewPanelProps,
   DockviewApi,
+  DockviewGroupPanel,
+  SerializedDockview,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Home, Code2 } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Home, Code2, X } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
@@ -25,7 +27,7 @@ import { KnownHostsPage } from "./components/KnownHostsPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { StoragePage } from "./components/StoragePage";
 import { PanelTab } from "./components/PanelTab";
-import { TaskBar } from "./components/TaskBar";
+import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { hostActions } from "./lib/hostActions";
@@ -45,6 +47,7 @@ const components = {
     }>
   ) => (
     <TerminalView
+      panelId={props.api.id}
       hostId={props.params.hostId}
       themeName={props.params.theme}
       fontSize={props.params.fontSize}
@@ -79,7 +82,14 @@ export default function App() {
   const [syncOpen, setSyncOpen] = useState(false);
   // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
   const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string }[]>([]);
-  const [activeSession, setActiveSession] = useState<string | null>(null);
+  const [split, setSplit] = useState(false);
+  // Mỗi TASK = một layout dockview riêng. Task 1 pane = host lẻ; task nhiều pane
+  // (split) = "Workspace". Mở host = task mới; kéo task này vào task kia = gộp thành workspace.
+  const [tasks, setTasks] = useState<{ id: string }[]>([]);
+  const [activeTask, setActiveTask] = useState<string | null>(null);
+  const taskLayouts = useRef<Map<string, SerializedDockview>>(new Map());
+  const switching = useRef(false); // chặn release phiên khi clear/fromJSON lúc chuyển task
+  const taskSeq = useRef(0);
   const apiRef = useRef<DockviewApi | null>(null);
   // Nếu cửa sổ được mở bằng "Duplicate in a new window" → tự mở terminal host này.
   const dupRef = useRef<string | null>(
@@ -170,6 +180,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hosts, locked, booting]);
 
+  // Task đang mở hết pane (đóng pane cuối / phiên thoát) → bỏ task, chuyển task khác hoặc về Home.
+  useEffect(() => {
+    if (switching.current || activeTask === null || sessions.length > 0) return;
+    const remaining = tasks.filter((t) => t.id !== activeTask);
+    taskLayouts.current.delete(activeTask);
+    setTasks(remaining);
+    if (remaining.length) {
+      loadLayout(remaining[0].id);
+      setActiveTask(remaining[0].id);
+    } else {
+      setActiveTask(null);
+      setShowHome(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
+
   function syncSessions(api: DockviewApi) {
     setSessions(
       api.panels.map((p) => ({
@@ -178,61 +204,125 @@ export default function App() {
         hostId: (p.params as { hostId?: string } | undefined)?.hostId,
       }))
     );
-    setActiveSession(api.activePanel?.id ?? null);
   }
 
   function onReady(event: DockviewReadyEvent) {
     apiRef.current = event.api;
     event.api.onDidLayoutChange(() => {
       syncSessions(event.api);
-      // Đóng terminal cuối cùng → quay lại màn Home.
-      if (event.api.panels.length === 0) setShowHome(true);
+      // Chia nhiều pane → hiện header từng pane (tên host + nút đóng).
+      setSplit(event.api.groups.length > 1);
+      // Đóng terminal cuối cùng → quay lại màn Home (bỏ qua khi đang chuyển workspace).
+      if (!switching.current && event.api.panels.length === 0) setShowHome(true);
     });
-    event.api.onDidActivePanelChange(() => setActiveSession(event.api.activePanel?.id ?? null));
+    // Panel bị đóng hẳn → ngắt phiên. Nhưng KHÔNG release khi đang chuyển
+    // workspace (clear/fromJSON cũng bắn sự kiện này) — pool phải giữ phiên sống.
+    event.api.onDidRemovePanel((e) => { if (!switching.current) terminalPool.release(e.id); });
+    // Cho phép kéo tab từ TaskBar (drag ngoài) → dockview mới hiện overlay chia màn hình.
+    // Lúc dragover không đọc được getData nên nhận diện qua dataTransfer.types.
+    event.api.onUnhandledDragOver((e) => {
+      const dt = (e.nativeEvent as DragEvent).dataTransfer;
+      if (dt && Array.from(dt.types).includes("termez/task")) e.accept();
+    });
+    // Kéo một task thả vào cạnh view hiện tại → gộp task đó vào task đang mở (workspace).
+    event.api.onDidDrop((e) => {
+      const id = (e.nativeEvent as DragEvent).dataTransfer?.getData("termez/task");
+      if (!id || !e.group) return;
+      mergeTaskIntoActive(id, e.group, e.position);
+    });
     syncSessions(event.api);
     maybeOpenDup();
   }
 
-  // Quay lại một phiên đang mở (từ danh sách trong menu / thanh task).
-  function focusSession(id: string) {
-    const p = apiRef.current?.getPanel(id);
-    if (!p) return;
-    p.api.setActive();
+  // ----- Tasks (mỗi task = một layout dockview) -----
+  function saveActiveLayout() {
+    const api = apiRef.current;
+    if (api && activeTask) taskLayouts.current.set(activeTask, api.toJSON());
+  }
+  function loadLayout(id: string) {
+    const api = apiRef.current;
+    if (!api) return;
+    switching.current = true; // chặn release phiên khi thay layout
+    api.clear();
+    const layout = taskLayouts.current.get(id);
+    if (layout && Object.keys(layout.panels).length > 0) {
+      try {
+        api.fromJSON(layout);
+      } catch {
+        /* layout hỏng → task trống */
+      }
+    }
+    switching.current = false;
+  }
+  // Mở nội dung mới trong một TASK riêng (không gộp vào task hiện tại).
+  function openInNewTask(add: () => void) {
+    saveActiveLayout();
+    switching.current = true;
+    apiRef.current?.clear();
+    switching.current = false;
+    add();
+    taskSeq.current += 1;
+    const id = `t-${taskSeq.current}`;
+    setTasks((t) => [...t, { id }]);
+    setActiveTask(id);
     setShowHome(false);
   }
-  function closeSession(id: string) {
-    apiRef.current?.getPanel(id)?.api.close();
+  function switchTask(id: string) {
+    if (id === activeTask) { setShowHome(false); return; }
+    saveActiveLayout();
+    loadLayout(id);
+    setActiveTask(id);
+    setShowHome(false);
   }
-  // Nhân bản một phiên terminal: mở thêm tab cùng host/params.
-  function duplicateSession(id: string) {
-    const api = apiRef.current;
-    const p = api?.getPanel(id);
-    if (!api || !p || !(p.params as { hostId?: string } | undefined)?.hostId) return;
-    api.addPanel({
-      id: crypto.randomUUID(),
-      component: "terminal",
-      tabComponent: "info",
-      title: p.title || "shell",
-      params: { ...(p.params || {}) },
-    });
-  }
-  // Nhân bản sang cửa sổ mới (chỉ với tab terminal của host).
-  async function duplicateSessionWindow(id: string) {
-    const hostId = (apiRef.current?.getPanel(id)?.params as { hostId?: string } | undefined)?.hostId;
-    if (!hostId) return;
-    const title = apiRef.current?.getPanel(id)?.title || "Termez";
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      new WebviewWindow(`term-${crypto.randomUUID().slice(0, 8)}`, {
-        url: `index.html?dup=${encodeURIComponent(hostId)}`,
-        title,
-        width: 1000,
-        height: 680,
-        decorations: false,
-      });
-    } catch {
-      /* ngoài Tauri */
+  function closeTask(id: string) {
+    const panelIds =
+      id === activeTask
+        ? apiRef.current?.panels.map((p) => p.id) ?? []
+        : Object.keys(taskLayouts.current.get(id)?.panels ?? {});
+    panelIds.forEach((pid) => terminalPool.release(pid));
+    taskLayouts.current.delete(id);
+
+    const remaining = tasks.filter((t) => t.id !== id);
+    if (id === activeTask) {
+      const next = remaining[0];
+      if (next) {
+        loadLayout(next.id);
+        setActiveTask(next.id);
+      } else {
+        switching.current = true;
+        apiRef.current?.clear();
+        switching.current = false;
+        setActiveTask(null);
+        setShowHome(true);
+      }
     }
+    setTasks(remaining);
+  }
+  // Kéo một task (host lẻ / workspace) thả vào cạnh view hiện tại → gộp panes của
+  // nó vào task đang mở, tạo/mở rộng thành workspace. Task nguồn biến mất.
+  function mergeTaskIntoActive(sourceId: string, group: DockviewGroupPanel, position: string) {
+    if (sourceId === activeTask) return;
+    const api = apiRef.current;
+    const layout = taskLayouts.current.get(sourceId);
+    if (!api || !layout) return;
+    const dir = ({ top: "above", bottom: "below", left: "left", right: "right", center: "within" } as const)[
+      position as "top" | "bottom" | "left" | "right" | "center"
+    ] ?? "right";
+    const panes = Object.values(layout.panels) as {
+      id: string; contentComponent?: string; title?: string; params?: Record<string, unknown>;
+    }[];
+    panes.forEach((p, i) => {
+      api.addPanel({
+        id: p.id,
+        component: p.contentComponent || "terminal",
+        tabComponent: "info",
+        title: p.title || "shell",
+        params: (p.params ?? {}) as Record<string, unknown>,
+        position: i === 0 ? { referenceGroup: group, direction: dir } : undefined,
+      });
+    });
+    taskLayouts.current.delete(sourceId);
+    setTasks((t) => t.filter((x) => x.id !== sourceId));
   }
 
   function selectSection(s: Section) {
@@ -245,14 +335,16 @@ export default function App() {
   }
 
   function openHost(host: Host) {
-    apiRef.current?.addPanel({
-      id: crypto.randomUUID(),
-      component: "terminal",
-      tabComponent: "info",
-      title: host.label,
-      params: { hostId: host.id, theme: host.term_theme, fontSize: host.font_size },
-    });
-    setShowHome(false);
+    // Mỗi host mở ra là một TASK riêng.
+    openInNewTask(() =>
+      apiRef.current?.addPanel({
+        id: crypto.randomUUID(),
+        component: "terminal",
+        tabComponent: "info",
+        title: host.label,
+        params: { hostId: host.id, theme: host.term_theme, fontSize: host.font_size },
+      })
+    );
   }
 
   function splitActive() {
@@ -271,24 +363,26 @@ export default function App() {
   }
 
   function openMonitor(host: Host) {
-    apiRef.current?.addPanel({
-      id: crypto.randomUUID(),
-      component: "monitor",
-      tabComponent: "info",
-      title: `${host.label} · Monitor`,
-      params: { hostId: host.id },
-    });
-    setShowHome(false);
+    openInNewTask(() =>
+      apiRef.current?.addPanel({
+        id: crypto.randomUUID(),
+        component: "monitor",
+        tabComponent: "info",
+        title: `${host.label} · Monitor`,
+        params: { hostId: host.id },
+      })
+    );
   }
 
   function openSftp() {
-    apiRef.current?.addPanel({
-      id: crypto.randomUUID(),
-      component: "sftp",
-      tabComponent: "info",
-      title: "SFTP",
-    });
-    setShowHome(false);
+    openInNewTask(() =>
+      apiRef.current?.addPanel({
+        id: crypto.randomUUID(),
+        component: "sftp",
+        tabComponent: "info",
+        title: "SFTP",
+      })
+    );
   }
 
   function openAdd() {
@@ -325,6 +419,26 @@ export default function App() {
     );
   }
 
+  // Tên hiển thị của từng task: 1 pane → tên host; nhiều pane → "Workspace N".
+  let wsNum = 0;
+  const taskDisplay = tasks.map((t) => {
+    const panes =
+      t.id === activeTask
+        ? sessions.map((s) => s.title)
+        : Object.values(taskLayouts.current.get(t.id)?.panels ?? {}).map(
+            (p) => (p as { title?: string }).title || "shell"
+          );
+    let name: string;
+    let isWs = false;
+    if (panes.length <= 1) name = panes[0] ?? "Empty";
+    else {
+      wsNum += 1;
+      name = `Workspace ${wsNum}`;
+      isWs = true;
+    }
+    return { id: t.id, name, isWs };
+  });
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <TitleBar
@@ -337,9 +451,9 @@ export default function App() {
             section={section}
             onSelect={selectSection}
             onSync={() => setSyncOpen(true)}
-            sessions={sessions}
-            activeSession={activeSession}
-            onOpenSession={focusSession}
+            sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
+            activeSession={activeTask}
+            onOpenSession={switchTask}
           />
         )}
 
@@ -370,19 +484,45 @@ export default function App() {
                 <HostSearch onOpen={openHost} />
               </div>
             </div>
-            {/* Thanh task cố định (ngoài dockview) — không bị cuộn theo terminal */}
-            <TaskBar
-              tasks={sessions}
-              activeId={activeSession}
-              onSelect={focusSession}
-              onClose={closeSession}
-              onDuplicate={duplicateSession}
-              onDuplicateWindow={duplicateSessionWindow}
-            />
+            {/* Thanh TASK (cố định): host lẻ + Workspace (split). Kéo một task thả
+                vào cạnh view → gộp thành workspace. */}
+            {taskDisplay.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-sidebar px-2 py-1.5">
+                {taskDisplay.map((t) => (
+                  <div
+                    key={t.id}
+                    draggable
+                    onDragStart={(e) => { e.dataTransfer.setData("termez/task", t.id); e.dataTransfer.effectAllowed = "move"; }}
+                    onClick={() => switchTask(t.id)}
+                    onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTask(t.id); } }}
+                    title={t.name}
+                    className={cn(
+                      "flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1 text-[13px] transition-colors",
+                      t.id === activeTask
+                        ? "border-border bg-card text-foreground"
+                        : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                    )}
+                  >
+                    {t.isWs
+                      ? <Columns2 className="size-3.5 shrink-0 text-primary" />
+                      : <span className={cn("size-1.5 shrink-0 rounded-full", t.id === activeTask ? "bg-primary" : "bg-muted-foreground/40")} />}
+                    <span className="max-w-[170px] truncate">{t.name}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); closeTask(t.id); }}
+                      title="Close"
+                      className="flex size-4 items-center justify-center rounded text-muted-foreground/70 hover:bg-border hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="relative min-h-0 flex-1">
               <DockviewReact
                 className={cn(
                   "dockview-theme-abyss absolute inset-0",
+                  split && "dv-panes",
                   broadcast && "ring-2 ring-inset ring-destructive"
                 )}
                 components={components}

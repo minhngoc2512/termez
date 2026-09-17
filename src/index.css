@@ -121,11 +121,22 @@
   }
 }
 
-/* Tab list được render RIÊNG (component TaskBar cố định ở trên) nên ẩn hẳn
-   thanh tab nội bộ của dockview — tránh việc tab bị cuộn theo terminal và bỏ
-   phần khoảng trống do theme "spaced" tạo ra. Dockview chỉ còn lo phần nội dung. */
+/* Khi CHỈ có 1 pane: ẩn header nội bộ của dockview (đã có TaskBar cố định ở
+   trên lo việc chuyển/đóng), tránh tab bị cuộn theo terminal.
+   Khi CHIA nhiều pane (.dv-panes): hiện header TỪNG pane = tên host + nút đóng,
+   để biết pane nào là host nào và đóng riêng từng pane (dockview tự chia lại). */
 .dockview-theme-abyss .dv-tabs-and-actions-container {
-  display: none !important;
+  display: none;
+}
+.dockview-theme-abyss.dv-panes .dv-tabs-and-actions-container {
+  display: flex;
+  --dv-tabs-and-actions-container-height: 30px;
+  --dv-tabs-and-actions-container-background-color: var(--sidebar);
+  --dv-tab-divider-color: transparent;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--card);
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--sidebar);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted-foreground);
 }
 .dockview-theme-abyss .dv-content-container {
   overflow: hidden;
