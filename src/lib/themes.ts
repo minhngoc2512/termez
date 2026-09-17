@@ -5,25 +5,25 @@ export interface TermThemeDef {
   theme: ITheme;
 }
 
-// Bảng 16 màu ANSI kiểu Terminus (prompt xanh lá, IP hồng/tím, path xanh dương/cyan).
-// Dùng cho các theme tối để chữ trong SSH trông có chủ đích, không phải màu mặc định xterm.
+// Bảng 16 màu ANSI chuẩn (Tango) — đúng bảng màu mặc định của xterm.js mà
+// Terminus dùng. Cho màu quen thuộc, đậm, đúng chuẩn thay vì pastel.
 const ANSI_TERMINUS = {
-  black: "#1c2733",
-  red: "#ff5c66",
-  green: "#4ade80",
-  yellow: "#f5d76e",
-  blue: "#4c8dff",
-  magenta: "#c792ea",
-  cyan: "#56d4dd",
-  white: "#cfd8e3",
-  brightBlack: "#4b5a6a",
-  brightRed: "#ff7b84",
-  brightGreen: "#6ee7a0",
-  brightYellow: "#ffe08a",
-  brightBlue: "#79a9ff",
-  brightMagenta: "#d9b3ff",
-  brightCyan: "#8be9e3",
-  brightWhite: "#ffffff",
+  black: "#2e3436",
+  red: "#cc0000",
+  green: "#4e9a06",
+  yellow: "#c4a000",
+  blue: "#3465a4",
+  magenta: "#75507b",
+  cyan: "#06989a",
+  white: "#d3d7cf",
+  brightBlack: "#555753",
+  brightRed: "#ef2929",
+  brightGreen: "#8ae234",
+  brightYellow: "#fce94f",
+  brightBlue: "#729fcf",
+  brightMagenta: "#ad7fa8",
+  brightCyan: "#34e2e2",
+  brightWhite: "#eeeeec",
 } satisfies Partial<ITheme>;
 
 export const TERM_THEMES: Record<string, TermThemeDef> = {
