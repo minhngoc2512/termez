@@ -265,6 +265,8 @@ function TerminalCard() {
   const setTermTheme = useStore((s) => s.setTermTheme);
   const termFontSize = useStore((s) => s.termFontSize);
   const setTermFontSize = useStore((s) => s.setTermFontSize);
+  const shellReadyWait = useStore((s) => s.shellReadyWait);
+  const setShellReadyWait = useStore((s) => s.setShellReadyWait);
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       <div className="flex items-center gap-3">
@@ -298,6 +300,22 @@ function TerminalCard() {
         <span className="w-12 text-right text-sm tabular-nums">{termFontSize}px</span>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">Applies to newly opened terminals. A host can still override this in its settings.</p>
+
+      {/* Chờ shell sẵn sàng trước khi cho gõ (tránh "command not found" do PATH nạp trễ) */}
+      <label className="mt-3 flex cursor-pointer items-center gap-3 border-t border-border pt-3">
+        <input
+          type="checkbox"
+          checked={shellReadyWait}
+          onChange={(e) => setShellReadyWait(e.target.checked)}
+          className="size-4 accent-[var(--primary)]"
+        />
+        <div className="flex-1">
+          <div className="text-sm">Wait for shell to be ready</div>
+          <div className="text-xs text-muted-foreground">
+            Đệm phím tới khi shell nạp xong (im ~0.35s) rồi mới gửi — tránh lỗi "command not found" khi PATH nạp trễ (Powerlevel10k instant prompt, mise/asdf…).
+          </div>
+        </div>
+      </label>
     </div>
   );
 }

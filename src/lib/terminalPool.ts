@@ -24,9 +24,40 @@ interface Entry {
   disposed: boolean;
   connUnlisteners: UnlistenFn[]; // listener theo từng lần kết nối (clear khi reconnect)
   hostId: string;
+  // "Chờ shell sẵn sàng": đệm phím tới khi output init của shell im một nhịp.
+  ready: boolean;
+  pending: string[];
+  quietTimer: number | null;
+  maxTimer: number | null;
 }
 
 const pool = new Map<string, Entry>();
+
+// Coi shell là "sẵn sàng" khi output ngưng QUIET_MS; tối đa chờ MAX_MS rồi mở khoá.
+const READY_QUIET_MS = 350;
+const READY_MAX_MS = 3000;
+
+function clearReadyTimers(entry: Entry) {
+  if (entry.quietTimer != null) { window.clearTimeout(entry.quietTimer); entry.quietTimer = null; }
+  if (entry.maxTimer != null) { window.clearTimeout(entry.maxTimer); entry.maxTimer = null; }
+}
+
+// Shell đã im/đủ lâu → cho gõ: xả toàn bộ phím đã đệm vào phiên.
+function markReady(entry: Entry) {
+  if (entry.ready) return;
+  entry.ready = true;
+  clearReadyTimers(entry);
+  const buffered = entry.pending.join("");
+  entry.pending = [];
+  if (buffered && entry.sessionId && !entry.disposed) api.sshSend(entry.sessionId, buffered);
+}
+
+// Mỗi lần có output init → dời lại mốc "im lặng".
+function bumpQuiet(entry: Entry) {
+  if (entry.ready) return;
+  if (entry.quietTimer != null) window.clearTimeout(entry.quietTimer);
+  entry.quietTimer = window.setTimeout(() => markReady(entry), READY_QUIET_MS);
+}
 
 // ----- Báo trạng thái kết nối cho UI (popup Connecting / Failed) -----
 export type ConnState = "connecting" | "connected" | "failed";
@@ -69,6 +100,7 @@ export function acquire(
   const entry: Entry = {
     el, term, fit, ro: null, opened: false, handlersSet: false,
     sessionId: null, disposed: false, connUnlisteners: [], hostId,
+    ready: true, pending: [], quietTimer: null, maxTimer: null,
   };
   pool.set(panelId, entry);
   return entry;
@@ -119,6 +151,7 @@ export function release(panelId: string) {
   const entry = pool.get(panelId);
   if (!entry) return;
   entry.disposed = true;
+  clearReadyTimers(entry);
   entry.ro?.disconnect();
   entry.connUnlisteners.forEach((u) => u());
   if (entry.sessionId) {
@@ -168,6 +201,7 @@ function setupHandlers(entry: Entry) {
   });
   term.onData((d) => {
     if (!entry.sessionId) return;
+    if (!entry.ready) { entry.pending.push(d); return; } // đang chờ shell sẵn sàng
     if (useStore.getState().broadcast) {
       for (const sid of activeSessions) api.sshSend(sid, d);
     } else {
@@ -203,9 +237,24 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     entry.sessionId = id;
     activeSessions.add(id);
 
+    // Chờ shell sẵn sàng: đệm phím tới khi output init "im" (READY_QUIET_MS) hoặc
+    // hết READY_MAX_MS. Tắt tùy chọn → cho gõ ngay.
+    clearReadyTimers(entry);
+    entry.pending = [];
+    if (useStore.getState().shellReadyWait) {
+      entry.ready = false;
+      bumpQuiet(entry);
+      entry.maxTimer = window.setTimeout(() => markReady(entry), READY_MAX_MS);
+    } else {
+      entry.ready = true;
+    }
+
     entry.connUnlisteners.push(
       await listen<SshDataPayload>("ssh:data", (e) => {
-        if (e.payload.id === id) term.write(base64ToBytes(e.payload.data));
+        if (e.payload.id === id) {
+          term.write(base64ToBytes(e.payload.data));
+          bumpQuiet(entry); // có output init → dời mốc "im lặng"
+        }
       })
     );
     entry.connUnlisteners.push(
