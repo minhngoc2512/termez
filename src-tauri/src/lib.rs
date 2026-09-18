@@ -51,6 +51,7 @@ pub fn run() {
                 autosync: std::sync::Mutex::new(None),
                 dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 monitor: Arc::new(monitor::MonitorManager::new()),
+                sync_base_path: data_dir.join("sync-base.enc"),
             });
             Ok(())
         })

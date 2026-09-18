@@ -5,7 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 /// Nhóm host (cây, có thể lồng nhau qua `parent_id`).
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Group {
     pub id: String,
     pub name: String,
@@ -17,7 +17,7 @@ pub struct Group {
 ///
 /// NOTE (bảo mật): `password` và `passphrase` hiện lưu plaintext trong SQLite cho MVP Phase 1.
 /// Phase 2/5 sẽ chuyển sang OS keychain + vault mã hóa E2E.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Host {
     pub id: String,
     pub group_id: Option<String>,
@@ -54,7 +54,7 @@ pub struct Host {
 }
 
 /// SSH key do app quản lý. Private key material nằm trong keychain, KHÔNG trong DB.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct SshKey {
     pub id: String,
     pub name: String,
@@ -454,7 +454,7 @@ pub async fn delete_key(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 
 // ----- Tunnels (port forwarding) -----
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Tunnel {
     pub id: String,
     pub name: String,
@@ -525,7 +525,7 @@ pub async fn delete_tunnel(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 
 // ----- Password manager entries -----
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct VaultEntry {
     pub id: String,
     pub title: String,
@@ -656,7 +656,7 @@ pub async fn delete_vault_folder(pool: &SqlitePool, path: &str) -> anyhow::Resul
 
 // ----- Kết nối lưu trữ S3/R2/MinIO -----
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct StorageBucket {
     pub id: String,
     pub name: String,
@@ -726,7 +726,7 @@ pub async fn delete_bucket(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 
 // ----- Known hosts (xác thực host key) -----
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct KnownHost {
     pub id: String,
     pub host: String,
