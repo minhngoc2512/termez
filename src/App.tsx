@@ -107,6 +107,17 @@ export default function App() {
     refresh();
   }, [refresh]);
 
+  // Trạng thái đã cấu hình đồng bộ chưa (repo + PAT) → đổi icon Cloud Sync trên menu.
+  // Kiểm tra lúc mở app và mỗi khi đóng dialog Sync (có thể vừa setup xong).
+  const [syncConfigured, setSyncConfigured] = useState(false);
+  useEffect(() => {
+    if (syncOpen) return;
+    api
+      .syncGetConfig()
+      .then((c) => setSyncConfigured(!!c.repo && c.has_pat))
+      .catch(() => {});
+  }, [syncOpen]);
+
   // Trạng thái kết nối SSH → popup Connecting / Failed.
   useEffect(() => {
     terminalPool.onStatus((s) => {
@@ -512,6 +523,7 @@ export default function App() {
             section={section}
             onSelect={selectSection}
             onSync={() => setSyncOpen(true)}
+            syncConfigured={syncConfigured}
             sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
             activeSession={activeTask}
             onOpenSession={switchTask}

@@ -1,5 +1,5 @@
 import {
-  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud,
+  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud, CloudOff,
   SquareTerminal, ChevronRight, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,13 +46,14 @@ interface Props {
   section: Section;
   onSelect: (s: Section) => void;
   onSync: () => void;
+  syncConfigured?: boolean;
   sessions?: Session[];
   activeSession?: string | null;
   onOpenSession?: (id: string) => void;
   onCloseSession?: (id: string) => void;
 }
 
-export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSession, onOpenSession, onCloseSession }: Props) {
+export function FeatureNav({ section, onSelect, onSync, syncConfigured = true, sessions = [], activeSession, onOpenSession, onCloseSession }: Props) {
   const hosts = useStore((s) => s.hosts);
   const entries = useStore((s) => s.entries);
   const tunnels = useStore((s) => s.tunnels);
@@ -116,7 +117,13 @@ export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSes
         ))}
       </nav>
       <div className="border-t border-border p-2">
-        <NavRow icon={Cloud} label="Cloud Sync" onClick={onSync} />
+        <NavRow
+          icon={syncConfigured ? Cloud : CloudOff}
+          iconClassName={syncConfigured ? undefined : "text-red-500"}
+          label="Cloud Sync"
+          title={syncConfigured ? undefined : "Chưa cấu hình đồng bộ"}
+          onClick={onSync}
+        />
         <NavRow
           icon={Settings}
           label="Settings"
@@ -130,13 +137,17 @@ export function FeatureNav({ section, onSelect, onSync, sessions = [], activeSes
 
 function NavRow({
   icon: Icon,
+  iconClassName,
   label,
+  title,
   badge,
   active,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
+  iconClassName?: string;
   label: string;
+  title?: string;
   badge?: number;
   active?: boolean;
   onClick: () => void;
@@ -144,6 +155,7 @@ function NavRow({
   return (
     <button
       onClick={onClick}
+      title={title}
       className={cn(
         "mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
         active
@@ -151,7 +163,7 @@ function NavRow({
           : "text-muted-foreground hover:bg-accent hover:text-foreground"
       )}
     >
-      <Icon className="size-4 shrink-0" />
+      <Icon className={cn("size-4 shrink-0", iconClassName)} />
       <span className="flex-1 truncate text-left">{label}</span>
       {badge != null && badge > 0 && (
         <span
