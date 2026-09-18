@@ -58,8 +58,10 @@ interface AppState {
   termFontSize: number;
   autoUpdate: boolean;
   shellReadyWait: boolean; // đệm phím tới khi shell im (init xong) rồi mới gửi
+  sanitizeInput: boolean; // NBSP→space + bỏ zero-width (bộ gõ tiếng Việt chèn vào)
   setAutoUpdate: (b: boolean) => void;
   setShellReadyWait: (b: boolean) => void;
+  setSanitizeInput: (b: boolean) => void;
   setAppTheme: (t: AppTheme) => void;
   setTermTheme: (t: string) => void;
   setTermFontSize: (n: number) => void;
@@ -87,9 +89,11 @@ export const useStore = create<AppState>((set) => ({
   termTheme: ls("term-theme", DEFAULT_THEME),
   termFontSize: Number(ls("term-font-size", "13.5")) || 13.5,
   autoUpdate: ls("auto-update", "1") === "1",
-  shellReadyWait: ls("shell-ready-wait", "1") === "1",
+  shellReadyWait: ls("shell-ready-wait", "0") === "1",
+  sanitizeInput: ls("ime-sanitize", "1") === "1",
   setAutoUpdate: (b) => { lsSet("auto-update", b ? "1" : "0"); set({ autoUpdate: b }); },
   setShellReadyWait: (b) => { lsSet("shell-ready-wait", b ? "1" : "0"); set({ shellReadyWait: b }); },
+  setSanitizeInput: (b) => { lsSet("ime-sanitize", b ? "1" : "0"); set({ sanitizeInput: b }); },
   setAppTheme: (t) => { lsSet("app-theme", t); applyAppTheme(t); set({ appTheme: t }); },
   setTermTheme: (t) => { lsSet("term-theme", t); set({ termTheme: t }); },
   setTermFontSize: (n) => { lsSet("term-font-size", String(n)); set({ termFontSize: n }); },

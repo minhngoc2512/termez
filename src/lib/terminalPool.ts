@@ -175,6 +175,16 @@ export function reconnect(panelId: string) {
   connect(panelId, entry);
 }
 
+// Bộ gõ tiếng Việt (ibus-bamboo/unikey…) hay chèn NBSP (U+00A0) thay cho space
+// và các ký tự zero-width vào chuỗi commit → shell nhận "htop " → not found.
+// Chuẩn hoá: NBSP các loại → space thường; bỏ zero-width. Chữ Việt bình thường
+// (á, ế, đ…) không bị đụng.
+function sanitizeImeInput(s: string): string {
+  return s
+    .replace(/[   ]/g, " ")
+    .replace(/[​‌‍⁠﻿]/g, "");
+}
+
 function safeFit(entry: Entry) {
   try {
     entry.fit.fit();
@@ -199,10 +209,12 @@ function setupHandlers(entry: Entry) {
     }
     return true;
   });
-  term.onData((d) => {
+  term.onData((raw) => {
     if (!entry.sessionId) return;
+    const st = useStore.getState();
+    const d = st.sanitizeInput ? sanitizeImeInput(raw) : raw;
     if (!entry.ready) { entry.pending.push(d); return; } // đang chờ shell sẵn sàng
-    if (useStore.getState().broadcast) {
+    if (st.broadcast) {
       for (const sid of activeSessions) api.sshSend(sid, d);
     } else {
       api.sshSend(entry.sessionId, d);
