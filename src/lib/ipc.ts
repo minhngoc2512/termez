@@ -144,6 +144,7 @@ export interface SshDataPayload {
 }
 export interface SshClosedPayload {
   id: string;
+  clean: boolean; // true = shell tự thoát / ta đóng; false = đứt ngang (mất mạng)
 }
 
 export interface LanDevice {

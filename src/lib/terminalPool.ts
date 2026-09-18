@@ -60,20 +60,28 @@ function bumpQuiet(entry: Entry) {
 }
 
 // ----- Báo trạng thái kết nối cho UI (popup Connecting / Failed) -----
-export type ConnState = "connecting" | "connected" | "failed";
+// "closed" = shell tự thoát (user gõ exit) → App đóng pane.
+export type ConnState = "connecting" | "connected" | "failed" | "closed";
 export interface ConnStatus {
   panelId: string;
   hostId: string;
   state: ConnState;
   error?: string;
+  attempt?: number; // lần thử hiện tại (khi đang reconnect)
+  maxAttempts?: number;
 }
 let statusCb: ((s: ConnStatus) => void) | null = null;
 export function onStatus(cb: (s: ConnStatus) => void) {
   statusCb = cb;
 }
-function emit(entry: Entry, panelId: string, state: ConnState, error?: string) {
-  statusCb?.({ panelId, hostId: entry.hostId, state, error });
+function emit(entry: Entry, panelId: string, state: ConnState, error?: string, attempt?: number, maxAttempts?: number) {
+  statusCb?.({ panelId, hostId: entry.hostId, state, error, attempt, maxAttempts });
 }
+
+// Số lần thử lại + khoảng chờ (tăng dần) khi kết nối lỗi / mất mạng.
+const CONNECT_MAX_ATTEMPTS = 3;
+const RECONNECT_DELAY_MS = [1500, 3000, 5000];
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
 export function acquire(
   panelId: string,
@@ -238,9 +246,11 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     entry.sessionId = null;
   }
 
-  emit(entry, panelId, "connecting");
+  for (let attempt = 1; attempt <= CONNECT_MAX_ATTEMPTS; attempt++) {
+    if (entry.disposed) return;
+    emit(entry, panelId, "connecting", undefined, attempt, CONNECT_MAX_ATTEMPTS);
 
-  try {
+    try {
     const id = await api.sshConnect(entry.hostId, term.cols, term.rows);
     if (entry.disposed) {
       api.sshDisconnect(id).catch(() => {});
@@ -271,12 +281,23 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     );
     entry.connUnlisteners.push(
       await listen<SshClosedPayload>("ssh:closed", (e) => {
-        if (e.payload.id === id) term.write("\r\n\x1b[33m[session closed]\x1b[0m\r\n");
+        if (e.payload.id !== id || entry.disposed) return;
+        entry.sessionId = null;
+        activeSessions.delete(id);
+        if (e.payload.clean) {
+          // Shell tự thoát (user gõ `exit`) → báo App đóng pane.
+          emit(entry, panelId, "closed");
+        } else {
+          // Đứt ngang (mất mạng…) → tự kết nối lại vài lần.
+          term.write("\r\n\x1b[33m[connection lost — reconnecting…]\x1b[0m\r\n");
+          connect(panelId, entry);
+        }
       })
     );
 
     term.focus();
     emit(entry, panelId, "connected");
+    return; // thành công
   } catch (err) {
     const str = String(err);
     if (str.startsWith("HOSTKEY|")) {
@@ -304,7 +325,15 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
       emit(entry, panelId, "failed", "Host key not trusted — connection aborted.");
       return;
     }
+    // Lỗi mạng/khác → thử lại vài lần (backoff) rồi mới báo fail.
+    if (attempt < CONNECT_MAX_ATTEMPTS && !entry.disposed) {
+      term.write(`\r\n\x1b[33m[connect failed — retrying ${attempt + 1}/${CONNECT_MAX_ATTEMPTS}…]\x1b[0m\r\n`);
+      await sleep(RECONNECT_DELAY_MS[attempt - 1] ?? 3000);
+      continue;
+    }
     term.write(`\r\n\x1b[31mConnection error: ${err}\x1b[0m\r\n`);
     emit(entry, panelId, "failed", str);
+    return;
+    }
   }
 }

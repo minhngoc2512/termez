@@ -23,6 +23,9 @@ struct DataPayload {
 #[derive(Clone, Serialize)]
 struct ClosedPayload {
     id: String,
+    /// true = shell tự kết thúc (user gõ `exit`, hoặc ta chủ động đóng) → không reconnect.
+    /// false = kênh đứt ngang (mất mạng…) → frontend thử kết nối lại.
+    clean: bool,
 }
 
 /// Quản lý toàn bộ phiên SSH đang mở; mỗi phiên là 1 tokio task + kênh mpsc để điều khiển.
@@ -82,13 +85,24 @@ impl SshManager {
         tokio::spawn(async move {
             // Giữ kết nối (handle + jump handles) sống suốt vòng đời phiên.
             let _conn = conn;
+            // "sạch" = server đóng kênh graceful (Eof/Close, hoặc có exit-status/signal)
+            // hoặc ta chủ động đóng. Chỉ `None` (kênh biến mất mà KHÔNG có Close) mới là
+            // đứt ngang (mất mạng) → frontend sẽ thử kết nối lại.
+            let mut clean = false;
             loop {
                 tokio::select! {
                     msg = channel.wait() => {
                         match msg {
                             Some(ChannelMsg::Data { data }) => emit_data(&app, &sid, &data),
                             Some(ChannelMsg::ExtendedData { data, .. }) => emit_data(&app, &sid, &data),
-                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                            Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::ExitSignal { .. }) => {
+                                clean = true; // shell tự kết thúc (vd user gõ `exit`)
+                            }
+                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => {
+                                clean = true; // server đóng kênh bình thường
+                                break;
+                            }
+                            None => break, // kênh đứt mà không có Close → mất mạng
                             _ => {}
                         }
                     }
@@ -102,13 +116,14 @@ impl SshManager {
                             }
                             Some(SshInput::Close) | None => {
                                 let _ = channel.eof().await;
+                                clean = true; // ta chủ động đóng (release/disconnect)
                                 break;
                             }
                         }
                     }
                 }
             }
-            let _ = app.emit("ssh:closed", ClosedPayload { id: sid });
+            let _ = app.emit("ssh:closed", ClosedPayload { id: sid, clean });
         });
 
         Ok(session_id)

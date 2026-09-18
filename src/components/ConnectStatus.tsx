@@ -17,10 +17,11 @@ export function ConnectStatus({
   onExit: () => void;
 }) {
   const hosts = useStore((s) => s.hosts);
-  if (!status || status.state === "connected") return null;
+  if (!status || status.state === "connected" || status.state === "closed") return null;
 
   const label = hosts.find((h) => h.id === status.hostId)?.label || "host";
   const connecting = status.state === "connecting";
+  const retrying = connecting && (status.attempt ?? 1) > 1;
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
@@ -28,9 +29,13 @@ export function ConnectStatus({
         {connecting ? (
           <div className="flex flex-col items-center gap-3 text-center">
             <Loader2 className="size-8 animate-spin text-primary" />
-            <div className="text-base font-semibold">Connecting…</div>
+            <div className="text-base font-semibold">{retrying ? "Reconnecting…" : "Connecting…"}</div>
             <div className="text-sm text-muted-foreground">
-              Opening SSH to <span className="font-medium text-foreground">{label}</span>
+              {retrying ? "Retrying SSH to " : "Opening SSH to "}
+              <span className="font-medium text-foreground">{label}</span>
+              {retrying && status.maxAttempts ? (
+                <span className="ml-1 tabular-nums opacity-70">({status.attempt}/{status.maxAttempts})</span>
+              ) : null}
             </div>
             <Button variant="outline" size="sm" className="mt-1" onClick={onExit}>Cancel</Button>
           </div>

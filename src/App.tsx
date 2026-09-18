@@ -121,6 +121,12 @@ export default function App() {
   // Trạng thái kết nối SSH → popup Connecting / Failed.
   useEffect(() => {
     terminalPool.onStatus((s) => {
+      if (s.state === "closed") {
+        // Shell tự thoát (user gõ `exit`) → đóng pane, tắt popup nếu đang mở.
+        apiRef.current?.getPanel(s.panelId)?.api.close();
+        setConn((prev) => (prev && prev.panelId === s.panelId ? null : prev));
+        return;
+      }
       setConn((prev) => {
         if (s.state === "connected") return prev && prev.panelId === s.panelId ? null : prev;
         return s; // connecting | failed → hiện popup
