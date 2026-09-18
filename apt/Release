@@ -1,23 +1,23 @@
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Fri, 18 Sep 2026 04:40:55 +0000
+Date: Fri, 18 Sep 2026 10:00:29 +0000
 Label: Termez
 Origin: Termez
 Suite: stable
 MD5Sum:
- 459c7a17fec89909f806f1a6a33fb123              411 Packages
- cde7bc505c1b582e20538c1c19f3ca3a              339 Packages.gz
- 7e3a59cfb4dfcbc85006bbcdfa1c18fb              136 Release
+ 3e0a74be500b87c32682ce88f3f63f08              411 Packages
+ 456bc66338e333b9daf7c5cd669511ec              340 Packages.gz
+ 87e82eaebd7ca8190a13e88487393e30              136 Release
 SHA1:
- c3892cced2fedf4b1e96ea651713dde18925f38c              411 Packages
- c77178044af125bfb7fb1e01329cdbff668cb626              339 Packages.gz
- 0fe3cedb71447d4f6e318020372c457167c42611              136 Release
+ af35e69f8b9601e5ecc4eb1a486b91d1478eeeaa              411 Packages
+ 9baecb7fa8ee6d43204079bf1652aeb458a8a2b1              340 Packages.gz
+ 1bf1d9a1d7f901bf9b574dc4b3f2ed0998c40720              136 Release
 SHA256:
- 9c268e0825ead4ea54bd90294c49f8f281f5db448a276620035ef4dd821e437b              411 Packages
- 886e0832228bff8d2fdb00fc489b6cc78b6bfeeea68782b03b6846f2d0fef1ed              339 Packages.gz
- 5a16c5df7f99e1d968dea3d2a37fe5eb660e20f623e88c791582b49bbef25918              136 Release
+ eb25b8620052695110a1367e4a5a161323b81dac404c2c91506073f2447d778b              411 Packages
+ 20a5d472e83e7d86d2d703c28c1c566c58a7224c8988d7a55dcc6404ef16131f              340 Packages.gz
+ 28c7f3bd9dd2485063a1d88e15d3d52cd3aea89235b21394a48f0325bcb4a9b3              136 Release
 SHA512:
- d9bed30ad02392cc79649db966cbcac2dcc632148ca68f540270f78ab7aa857c36eae77968dded2826b8aaa5df04922dc79fc2d9df33fdda3f27fd1ba853c854              411 Packages
- 53f7dc712923fed2195dc6b78d463922ed50101883e5c147f8c8e48194cc9b47716e483f873affd4ee9b92eed71320cd4b2b1635f0f50a11cf52e3e95537ef76              339 Packages.gz
- 8a5d4e93ee45885ab9381b2893dc5aa1da5e323051a6d05a56d407d57328a2073afc77a8a51401657bfd21e91175168e4d732b52ce9ff537f1eed56a3b4a5afe              136 Release
+ 526f84e1d3225979c4a8e800bf0b1d3bf810eabddbe5b32ad9c2c598f340233992adb1e673a7371a1d422723262c92cf89dcff4bdc6174b7bc9d375c59707a13              411 Packages
+ 6357f771479fe7ba10093368e4bfe674e33e79a2778f3a6cb528b47a543fd4a4c07644fcc5f554020c209d685ba7d91e1458fda449c095c31b928b151761bab1              340 Packages.gz
+ 95eda98424b23108b179a2aa16ee49de134040b80d9ea6f7346c19f1ac037529ff2dd243c6c959162f41aa6f391cc281d64f0ddc540e115da54a5616b5f9353c              136 Release
