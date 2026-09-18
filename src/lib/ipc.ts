@@ -146,6 +146,10 @@ export interface SshClosedPayload {
   id: string;
   clean: boolean; // true = shell tự thoát / ta đóng; false = đứt ngang (mất mạng)
 }
+export interface SshLatencyPayload {
+  id: string;
+  ms: number; // round-trip SSH ping (ms)
+}
 
 export interface LanDevice {
   ip: string;

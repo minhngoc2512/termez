@@ -5,7 +5,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { api, base64ToBytes, SshClosedPayload, SshDataPayload } from "./ipc";
+import { api, base64ToBytes, SshClosedPayload, SshDataPayload, SshLatencyPayload } from "./ipc";
 import { confirmDialog } from "./dialogs";
 import { activeSessions } from "./broadcast";
 import { resolveTheme } from "./themes";
@@ -24,6 +24,7 @@ interface Entry {
   disposed: boolean;
   connUnlisteners: UnlistenFn[]; // listener theo từng lần kết nối (clear khi reconnect)
   hostId: string;
+  badge: HTMLDivElement | null; // hiển thị độ trễ ping ở góc pane
   // "Chờ shell sẵn sàng": đệm phím tới khi output init của shell im một nhịp.
   ready: boolean;
   pending: string[];
@@ -93,7 +94,14 @@ export function acquire(
   if (existing) return existing;
 
   const el = document.createElement("div");
-  el.className = "box-border h-full w-full p-1.5";
+  el.className = "relative box-border h-full w-full p-1.5";
+
+  // Badge độ trễ ping ở góc trên-phải (overlay, không chắn thao tác).
+  const badge = document.createElement("div");
+  badge.className =
+    "pointer-events-none absolute right-2.5 top-2.5 z-10 rounded-md px-1.5 py-0.5 font-mono text-[10px] leading-none opacity-0 transition-opacity";
+  badge.style.background = "rgba(0,0,0,0.55)";
+  el.appendChild(badge);
 
   const s = useStore.getState();
   const term = new Terminal({
@@ -107,7 +115,7 @@ export function acquire(
 
   const entry: Entry = {
     el, term, fit, ro: null, opened: false, handlersSet: false,
-    sessionId: null, disposed: false, connUnlisteners: [], hostId,
+    sessionId: null, disposed: false, connUnlisteners: [], hostId, badge,
     ready: true, pending: [], quietTimer: null, maxTimer: null,
   };
   pool.set(panelId, entry);
@@ -193,6 +201,23 @@ function sanitizeImeInput(s: string): string {
     .replace(/[​‌‍⁠﻿]/g, "");
 }
 
+// Cập nhật badge độ trễ: xanh <80ms, vàng <200ms, đỏ nếu cao hơn.
+function setLatency(entry: Entry, ms: number) {
+  const b = entry.badge;
+  if (!b) return;
+  b.textContent = `${ms} ms`;
+  b.style.color = ms < 80 ? "#34d399" : ms < 200 ? "#fbbf24" : "#f87171";
+  b.style.opacity = "0.85";
+}
+// Trạng thái đang đo / mất kết nối.
+function pendingLatency(entry: Entry) {
+  const b = entry.badge;
+  if (!b) return;
+  b.textContent = "···";
+  b.style.color = "#94a3b8";
+  b.style.opacity = "0.6";
+}
+
 function safeFit(entry: Entry) {
   try {
     entry.fit.fit();
@@ -249,6 +274,7 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
   for (let attempt = 1; attempt <= CONNECT_MAX_ATTEMPTS; attempt++) {
     if (entry.disposed) return;
     emit(entry, panelId, "connecting", undefined, attempt, CONNECT_MAX_ATTEMPTS);
+    pendingLatency(entry); // badge "···" khi đang (re)connect
 
     try {
     const id = await api.sshConnect(entry.hostId, term.cols, term.rows);
@@ -277,6 +303,11 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
           term.write(base64ToBytes(e.payload.data));
           bumpQuiet(entry); // có output init → dời mốc "im lặng"
         }
+      })
+    );
+    entry.connUnlisteners.push(
+      await listen<SshLatencyPayload>("ssh:latency", (e) => {
+        if (e.payload.id === id) setLatency(entry, e.payload.ms);
       })
     );
     entry.connUnlisteners.push(

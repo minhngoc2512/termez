@@ -3,8 +3,10 @@ use base64::Engine;
 use russh::ChannelMsg;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::{interval, Duration};
 
 /// Lệnh gửi vào task sở hữu SSH channel.
 enum SshInput {
@@ -26,6 +28,13 @@ struct ClosedPayload {
     /// true = shell tự kết thúc (user gõ `exit`, hoặc ta chủ động đóng) → không reconnect.
     /// false = kênh đứt ngang (mất mạng…) → frontend thử kết nối lại.
     clean: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct LatencyPayload {
+    id: String,
+    /// round-trip time (ms) đo bằng SSH keepalive ping.
+    ms: u32,
 }
 
 /// Quản lý toàn bộ phiên SSH đang mở; mỗi phiên là 1 tokio task + kênh mpsc để điều khiển.
@@ -84,13 +93,25 @@ impl SshManager {
         let sid = session_id.clone();
         tokio::spawn(async move {
             // Giữ kết nối (handle + jump handles) sống suốt vòng đời phiên.
-            let _conn = conn;
+            let conn = conn;
+            // Đo độ trễ (SSH keepalive ping) 2s/lần → emit "ssh:latency".
+            let mut ping_tick = interval(Duration::from_secs(2));
             // "sạch" = server đóng kênh graceful (Eof/Close, hoặc có exit-status/signal)
             // hoặc ta chủ động đóng. Chỉ `None` (kênh biến mất mà KHÔNG có Close) mới là
             // đứt ngang (mất mạng) → frontend sẽ thử kết nối lại.
             let mut clean = false;
             loop {
                 tokio::select! {
+                    _ = ping_tick.tick() => {
+                        // Timeout 5s để không kẹt vòng lặp nếu kết nối nửa-chết.
+                        let t = Instant::now();
+                        if let Ok(Ok(())) =
+                            tokio::time::timeout(Duration::from_secs(5), conn.handle.send_ping()).await
+                        {
+                            let ms = t.elapsed().as_millis().min(u32::MAX as u128) as u32;
+                            let _ = app.emit("ssh:latency", LatencyPayload { id: sid.clone(), ms });
+                        }
+                    }
                     msg = channel.wait() => {
                         match msg {
                             Some(ChannelMsg::Data { data }) => emit_data(&app, &sid, &data),
