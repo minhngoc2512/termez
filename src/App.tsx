@@ -8,7 +8,7 @@ import {
   SerializedDockview,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
-import { Radio, Columns2, FolderOpen, Home, Code2, X, Plus } from "lucide-react";
+import { Radio, Columns2, FolderOpen, Home, Code2, Plus } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
@@ -27,11 +27,14 @@ import { KnownHostsPage } from "./components/KnownHostsPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { StoragePage } from "./components/StoragePage";
 import { PanelTab } from "./components/PanelTab";
+import { TaskTab } from "./components/TaskTab";
 import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { UpdateManager } from "./components/UpdateManager";
 import { HostPicker } from "./components/HostPicker";
+import { ConnectStatus } from "./components/ConnectStatus";
+import type { ConnStatus } from "./lib/terminalPool";
 import { hostActions } from "./lib/hostActions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -83,6 +86,7 @@ export default function App() {
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [conn, setConn] = useState<ConnStatus | null>(null);
   // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
   const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string }[]>([]);
   const [split, setSplit] = useState(false);
@@ -102,6 +106,23 @@ export default function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Trạng thái kết nối SSH → popup Connecting / Failed.
+  useEffect(() => {
+    terminalPool.onStatus((s) => {
+      setConn((prev) => {
+        if (s.state === "connected") return prev && prev.panelId === s.panelId ? null : prev;
+        return s; // connecting | failed → hiện popup
+      });
+    });
+  }, []);
+  function retryConn() {
+    if (conn) terminalPool.reconnect(conn.panelId);
+  }
+  function exitConn() {
+    if (conn) apiRef.current?.getPanel(conn.panelId)?.api.close();
+    setConn(null);
+  }
 
   // Mở host đang chờ (từ tham số ?dup=) khi đã sẵn sàng: hết boot, mở khóa,
   // dockview đã tạo, và danh sách host đã nạp.
@@ -328,6 +349,40 @@ export default function App() {
     setTasks((t) => t.filter((x) => x.id !== sourceId));
   }
 
+  // Từ thanh task: mở thêm một shell của host trong task đó.
+  // tabbed = tab mới cùng nhóm; ngược lại chia đôi (side-by-side) → thành workspace.
+  function duplicateTask(id: string, tabbed: boolean) {
+    switchTask(id); // loadLayout chạy đồng bộ nên apiRef đã có panes của task này
+    const api = apiRef.current;
+    if (!api) return;
+    const host = api.panels.find((p) => (p.params as { hostId?: string } | undefined)?.hostId);
+    if (!host) return;
+    api.addPanel({
+      id: crypto.randomUUID(),
+      component: "terminal",
+      tabComponent: "info",
+      title: host.title || "shell",
+      params: (host.params ?? {}) as Record<string, unknown>,
+      position: tabbed ? undefined : { referencePanel: host.id, direction: "right" },
+    });
+  }
+
+  // Mở host của task trong một cửa sổ mới.
+  async function duplicateTaskWindow(hostId: string, title: string) {
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      new WebviewWindow(`term-${crypto.randomUUID().slice(0, 8)}`, {
+        url: `index.html?dup=${encodeURIComponent(hostId)}`,
+        title: title || "Termez",
+        width: 1000,
+        height: 680,
+        decorations: false,
+      });
+    } catch {
+      /* ngoài Tauri (dev web) — bỏ qua */
+    }
+  }
+
   function selectSection(s: Section) {
     if (s === "sftp") {
       openSftp();
@@ -425,21 +480,24 @@ export default function App() {
   // Tên hiển thị của từng task: 1 pane → tên host; nhiều pane → "Workspace N".
   let wsNum = 0;
   const taskDisplay = tasks.map((t) => {
-    const panes =
+    const panes: { title: string; hostId?: string }[] =
       t.id === activeTask
-        ? sessions.map((s) => s.title)
-        : Object.values(taskLayouts.current.get(t.id)?.panels ?? {}).map(
-            (p) => (p as { title?: string }).title || "shell"
-          );
+        ? sessions.map((s) => ({ title: s.title, hostId: s.hostId }))
+        : Object.values(taskLayouts.current.get(t.id)?.panels ?? {}).map((p) => {
+            const pp = p as { title?: string; params?: { hostId?: string } };
+            return { title: pp.title || "shell", hostId: pp.params?.hostId };
+          });
     let name: string;
     let isWs = false;
-    if (panes.length <= 1) name = panes[0] ?? "Empty";
+    if (panes.length <= 1) name = panes[0]?.title ?? "Empty";
     else {
       wsNum += 1;
       name = `Workspace ${wsNum}`;
       isWs = true;
     }
-    return { id: t.id, name, isWs };
+    // Task 1 pane của một host → cho phép hover xem IP / menu Duplicate·Split.
+    const hostId = panes.length === 1 ? panes[0]?.hostId : undefined;
+    return { id: t.id, name, isWs, hostId };
   });
 
   return (
@@ -493,32 +551,16 @@ export default function App() {
             {taskDisplay.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-sidebar px-2 py-1.5">
                 {taskDisplay.map((t) => (
-                  <div
+                  <TaskTab
                     key={t.id}
-                    draggable
-                    onDragStart={(e) => { e.dataTransfer.setData("termez/task", t.id); e.dataTransfer.effectAllowed = "move"; }}
-                    onClick={() => switchTask(t.id)}
-                    onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTask(t.id); } }}
-                    title={t.name}
-                    className={cn(
-                      "flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border px-3 py-1 text-[13px] transition-colors",
-                      t.id === activeTask
-                        ? "border-border bg-card text-foreground"
-                        : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-                    )}
-                  >
-                    {t.isWs
-                      ? <Columns2 className="size-3.5 shrink-0 text-primary" />
-                      : <span className={cn("size-1.5 shrink-0 rounded-full", t.id === activeTask ? "bg-primary" : "bg-muted-foreground/40")} />}
-                    <span className="max-w-[170px] truncate">{t.name}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); closeTask(t.id); }}
-                      title="Close"
-                      className="flex size-4 items-center justify-center rounded text-muted-foreground/70 hover:bg-border hover:text-foreground"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
+                    task={t}
+                    active={t.id === activeTask}
+                    onSwitch={switchTask}
+                    onClose={closeTask}
+                    onDuplicate={(id) => duplicateTask(id, true)}
+                    onSplit={(id) => duplicateTask(id, false)}
+                    onDuplicateWindow={duplicateTaskWindow}
+                  />
                 ))}
                 <button
                   onClick={() => setPickerOpen(true)}
@@ -571,6 +613,7 @@ export default function App() {
       <DialogHost />
       <UpdateManager />
       <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
+      <ConnectStatus status={conn} onRetry={retryConn} onExit={exitConn} />
     </div>
   );
 }

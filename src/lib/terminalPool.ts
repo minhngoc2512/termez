@@ -19,13 +19,30 @@ interface Entry {
   fit: FitAddon;
   ro: ResizeObserver | null;
   opened: boolean;
+  handlersSet: boolean; // onData/onResize/keys chỉ gắn 1 lần
   sessionId: string | null;
   disposed: boolean;
-  unlisteners: UnlistenFn[];
+  connUnlisteners: UnlistenFn[]; // listener theo từng lần kết nối (clear khi reconnect)
   hostId: string;
 }
 
 const pool = new Map<string, Entry>();
+
+// ----- Báo trạng thái kết nối cho UI (popup Connecting / Failed) -----
+export type ConnState = "connecting" | "connected" | "failed";
+export interface ConnStatus {
+  panelId: string;
+  hostId: string;
+  state: ConnState;
+  error?: string;
+}
+let statusCb: ((s: ConnStatus) => void) | null = null;
+export function onStatus(cb: (s: ConnStatus) => void) {
+  statusCb = cb;
+}
+function emit(entry: Entry, panelId: string, state: ConnState, error?: string) {
+  statusCb?.({ panelId, hostId: entry.hostId, state, error });
+}
 
 export function acquire(
   panelId: string,
@@ -50,7 +67,8 @@ export function acquire(
   term.loadAddon(fit);
 
   const entry: Entry = {
-    el, term, fit, ro: null, opened: false, sessionId: null, disposed: false, unlisteners: [], hostId,
+    el, term, fit, ro: null, opened: false, handlersSet: false,
+    sessionId: null, disposed: false, connUnlisteners: [], hostId,
   };
   pool.set(panelId, entry);
   return entry;
@@ -102,7 +120,7 @@ export function release(panelId: string) {
   if (!entry) return;
   entry.disposed = true;
   entry.ro?.disconnect();
-  entry.unlisteners.forEach((u) => u());
+  entry.connUnlisteners.forEach((u) => u());
   if (entry.sessionId) {
     activeSessions.delete(entry.sessionId);
     api.sshDisconnect(entry.sessionId).catch(() => {});
@@ -116,6 +134,14 @@ export function release(panelId: string) {
   pool.delete(panelId);
 }
 
+/** Thử kết nối lại (nút Retry ở popup). */
+export function reconnect(panelId: string) {
+  const entry = pool.get(panelId);
+  if (!entry || entry.disposed) return;
+  entry.term.write("\r\n");
+  connect(panelId, entry);
+}
+
 function safeFit(entry: Entry) {
   try {
     entry.fit.fit();
@@ -124,9 +150,12 @@ function safeFit(entry: Entry) {
   }
 }
 
-async function connect(panelId: string, entry: Entry): Promise<void> {
+// Gắn các handler bàn phím / gõ / resize MỘT LẦN. Chúng đọc entry.sessionId hiện tại
+// nên vẫn đúng sau khi reconnect (đổi session id).
+function setupHandlers(entry: Entry) {
+  if (entry.handlersSet) return;
+  entry.handlersSet = true;
   const term = entry.term;
-  // Copy: Ctrl+Shift+C (khi có vùng chọn); Paste để xterm xử lý mặc định.
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === "keydown" && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") {
       const sel = term.getSelection();
@@ -137,6 +166,33 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     }
     return true;
   });
+  term.onData((d) => {
+    if (!entry.sessionId) return;
+    if (useStore.getState().broadcast) {
+      for (const sid of activeSessions) api.sshSend(sid, d);
+    } else {
+      api.sshSend(entry.sessionId, d);
+    }
+  });
+  term.onResize(({ cols, rows }) => {
+    if (entry.sessionId) api.sshResize(entry.sessionId, cols, rows);
+  });
+}
+
+async function connect(panelId: string, entry: Entry): Promise<void> {
+  const term = entry.term;
+  setupHandlers(entry);
+
+  // Dọn kết nối cũ (trường hợp reconnect).
+  entry.connUnlisteners.forEach((u) => u());
+  entry.connUnlisteners = [];
+  if (entry.sessionId) {
+    activeSessions.delete(entry.sessionId);
+    api.sshDisconnect(entry.sessionId).catch(() => {});
+    entry.sessionId = null;
+  }
+
+  emit(entry, panelId, "connecting");
 
   try {
     const id = await api.sshConnect(entry.hostId, term.cols, term.rows);
@@ -147,26 +203,19 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     entry.sessionId = id;
     activeSessions.add(id);
 
-    entry.unlisteners.push(
+    entry.connUnlisteners.push(
       await listen<SshDataPayload>("ssh:data", (e) => {
         if (e.payload.id === id) term.write(base64ToBytes(e.payload.data));
       })
     );
-    entry.unlisteners.push(
+    entry.connUnlisteners.push(
       await listen<SshClosedPayload>("ssh:closed", (e) => {
         if (e.payload.id === id) term.write("\r\n\x1b[33m[session closed]\x1b[0m\r\n");
       })
     );
 
-    term.onData((d) => {
-      if (useStore.getState().broadcast) {
-        for (const sid of activeSessions) api.sshSend(sid, d);
-      } else {
-        api.sshSend(id, d);
-      }
-    });
-    term.onResize(({ cols, rows }) => api.sshResize(id, cols, rows));
     term.focus();
+    emit(entry, panelId, "connected");
   } catch (err) {
     const str = String(err);
     if (str.startsWith("HOSTKEY|")) {
@@ -187,13 +236,14 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
           await api.knownHostsAdd(addr, Number(port), algo, openssh, fp);
           await connect(panelId, entry);
         } catch (e2) {
-          term.write(`\r\n\x1b[31mError saving host key: ${e2}\x1b[0m\r\n`);
+          emit(entry, panelId, "failed", `Error saving host key: ${e2}`);
         }
         return;
       }
-      term.write(`\r\n\x1b[33mConnection aborted: host key not trusted.\x1b[0m\r\n`);
+      emit(entry, panelId, "failed", "Host key not trusted — connection aborted.");
       return;
     }
     term.write(`\r\n\x1b[31mConnection error: ${err}\x1b[0m\r\n`);
+    emit(entry, panelId, "failed", str);
   }
 }
