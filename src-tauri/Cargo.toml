@@ -1,6 +1,6 @@
 [package]
 name = "termez"
-version = "0.2.13"
+version = "0.2.14"
 description = "Termez — SSH/SFTP manager"
 authors = ["you"]
 edition = "2021"
