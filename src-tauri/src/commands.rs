@@ -1642,12 +1642,10 @@ fn set_last_sha(sha: &str) {
 
 enum PushOutcome {
     Pushed(String),
-    Conflict,
 }
 enum PullOutcome {
     UpToDate,
     Pulled,
-    Conflict,
 }
 
 /// Gom toàn bộ dữ liệu + secret từ DB/keychain thành Vault (chưa mã hóa).
@@ -1776,7 +1774,7 @@ async fn do_push(
             // Remote đã đổi → merge rồi đẩy kết quả.
             let remote = decode_vault(&content_b64, master)?;
             let base = load_base(base_path, master).unwrap_or_default();
-            let (merged, _rep) = sync::merge_vaults(&base, &local, &remote);
+            let merged = sync::merge_vaults(&base, &local, &remote);
             let prev: std::collections::HashSet<String> = local.secrets.keys().cloned().collect();
             apply_vault(db, &merged, &prev).await?;
             let content = encode_vault(&merged, master)?;
@@ -1809,7 +1807,7 @@ async fn do_pull(
     let remote = decode_vault(&content_b64, master)?;
     let local = build_vault(db).await?;
     let base = load_base(base_path, master).unwrap_or_default();
-    let (merged, _rep) = sync::merge_vaults(&base, &local, &remote);
+    let merged = sync::merge_vaults(&base, &local, &remote);
     let prev: std::collections::HashSet<String> = local.secrets.keys().cloned().collect();
     apply_vault(db, &merged, &prev).await?;
 
@@ -1865,10 +1863,6 @@ pub fn schedule_autosync(app: AppHandle, state: &AppState) {
                 dirty.store(false, std::sync::atomic::Ordering::Relaxed);
                 let _ = app.emit("sync:auto", serde_json::json!({ "ok": true, "message": msg }));
             }
-            Ok(PushOutcome::Conflict) => {
-                let _ = app.emit("sync:conflict", ());
-                let _ = app.emit("sync:auto", serde_json::json!({ "ok": false, "message": "conflict" }));
-            }
             Err(e) => {
                 let _ = app.emit("sync:auto", serde_json::json!({ "ok": false, "message": e.to_string() }));
             }
@@ -1900,10 +1894,6 @@ pub async fn sync_auto_pull(app: AppHandle, state: State<'_, AppState>) -> R<Str
             let _ = app.emit("sync:pulled", ());
             Ok("pulled".into())
         }
-        PullOutcome::Conflict => {
-            let _ = app.emit("sync:conflict", ());
-            Ok("conflict".into())
-        }
     }
 }
 
@@ -1920,7 +1910,6 @@ pub async fn sync_resolve_conflict(app: AppHandle, state: State<'_, AppState>, c
                 state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
                 Ok("kept-local".into())
             }
-            PushOutcome::Conflict => Ok("conflict".into()),
         }
     } else {
         do_pull(&state.db, &master, &pat, &owner, &repo, &state.sync_base_path, false, true).await.map_err(e)?;
@@ -1964,7 +1953,6 @@ pub async fn sync_push(state: State<'_, AppState>, master: String) -> R<String> 
             state.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
             Ok(msg)
         }
-        PushOutcome::Conflict => Err("Remote changed — conflict".into()),
     }
 }
 

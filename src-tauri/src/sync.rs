@@ -242,16 +242,12 @@ fn merge_secrets(
     out
 }
 
-/// Kết quả merge cả kho.
-pub struct MergeReport {
-    /// id các record bị sửa ở cả hai phía (đã tự resolve theo updated_at/ưu tiên local).
-    pub conflicts: Vec<String>,
-}
-
 /// Merge 3-way toàn bộ Vault. base = trạng thái lần đồng bộ trước (rỗng nếu chưa có).
-pub fn merge_vaults(base: &Vault, local: &Vault, remote: &Vault) -> (Vault, MergeReport) {
+/// `conflicts` gom id các record bị sửa cả hai phía (đã tự resolve) — hiện chỉ dùng
+/// để bỏ qua, nhưng vẫn thu thập sẵn cho tương lai.
+pub fn merge_vaults(base: &Vault, local: &Vault, remote: &Vault) -> Vault {
     let mut conflicts = Vec::new();
-    let merged = Vault {
+    Vault {
         version: local.version.max(remote.version).max(1),
         hosts: merge_vec(&base.hosts, &local.hosts, &remote.hosts, &mut conflicts),
         groups: merge_vec(&base.groups, &local.groups, &remote.groups, &mut conflicts),
@@ -261,8 +257,7 @@ pub fn merge_vaults(base: &Vault, local: &Vault, remote: &Vault) -> (Vault, Merg
         buckets: merge_vec(&base.buckets, &local.buckets, &remote.buckets, &mut conflicts),
         folders: merge_folders(&base.folders, &local.folders, &remote.folders),
         secrets: merge_secrets(&base.secrets, &local.secrets, &remote.secrets),
-    };
-    (merged, MergeReport { conflicts })
+    }
 }
 
 // ---------- GitHub Contents API ----------
