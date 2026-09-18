@@ -26,7 +26,7 @@ pub fn code(secret_b32: &str) -> anyhow::Result<(String, u64)> {
 
 /// Sinh secret base32 mới (dùng cho 2FA app lock).
 pub fn generate_secret_b32() -> String {
-    Secret::generate_secret().to_base32()
+    Secret::generate().to_base32()
 }
 
 /// otpauth:// URL để quét bằng app authenticator.

@@ -5,7 +5,7 @@
 use crate::db::{Group, Host, SshKey, StorageBucket, Tunnel, VaultEntry};
 use argon2::Argon2;
 use chacha20poly1305::aead::Aead;
-use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -46,11 +46,12 @@ pub fn encrypt(plaintext: &[u8], master: &str) -> anyhow::Result<Vec<u8>> {
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
     let key = derive_key(master, &salt)?;
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|_| anyhow::anyhow!("khởi tạo cipher thất bại"))?;
     let mut nonce = [0u8; 24];
     OsRng.fill_bytes(&mut nonce);
     let ct = cipher
-        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .encrypt(&XNonce::from(nonce), plaintext)
         .map_err(|_| anyhow::anyhow!("mã hóa thất bại"))?;
     let mut out = Vec::with_capacity(4 + 16 + 24 + ct.len());
     out.extend_from_slice(MAGIC);
@@ -68,9 +69,11 @@ pub fn decrypt(data: &[u8], master: &str) -> anyhow::Result<Vec<u8>> {
     let nonce = &data[20..44];
     let ct = &data[44..];
     let key = derive_key(master, salt)?;
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|_| anyhow::anyhow!("khởi tạo cipher thất bại"))?;
+    let nonce = XNonce::try_from(nonce).map_err(|_| anyhow::anyhow!("nonce không hợp lệ"))?;
     cipher
-        .decrypt(XNonce::from_slice(nonce), ct)
+        .decrypt(&nonce, ct)
         .map_err(|_| anyhow::anyhow!("sai master password hoặc dữ liệu hỏng"))
 }
 
