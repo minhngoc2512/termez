@@ -841,6 +841,7 @@ pub async fn applock_set_timeout(timeout_mins: u32) -> R<()> {
 // ----- Thông tin app + kiểm tra cập nhật -----
 
 const RELEASES_API: &str = "https://api.github.com/repos/minhngoc2512/termez/releases/latest";
+const APT_PACKAGES_URL: &str = "https://minhngoc2512.github.io/termez/apt/Packages";
 
 #[derive(serde::Serialize)]
 pub struct UpdateInfo {
@@ -851,16 +852,100 @@ pub struct UpdateInfo {
     notes: String,
 }
 
+/// App có phải bản cài qua apt/.deb không? (AppImage/rpm/mac/win → false, dùng GitHub.)
+fn is_apt_install() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var_os("APPIMAGE").is_some() {
+            return false; // đang chạy từ AppImage
+        }
+        std::process::Command::new("dpkg-query")
+            .args(["-W", "-f=${Version}", "termez"])
+            .output()
+            .map(|o| o.status.success() && !o.stdout.is_empty())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+/// Phiên bản termez đang cài trong dpkg (bản cài apt), None nếu không có.
+fn dpkg_installed_version() -> Option<String> {
+    let out = std::process::Command::new("dpkg-query")
+        .args(["-W", "-f=${Version}", "termez"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Đọc version mới nhất mà apt repo đang phục vụ (parse file `Packages`).
+async fn fetch_apt_version() -> anyhow::Result<String> {
+    let body = reqwest::Client::new()
+        .get(APT_PACKAGES_URL)
+        .header("User-Agent", "Termez")
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    for line in body.lines() {
+        if let Some(v) = line.strip_prefix("Version:") {
+            return Ok(v.trim().to_string());
+        }
+    }
+    anyhow::bail!("Không tìm thấy Version trong Packages")
+}
+
+/// (html_url, body changelog) của một release theo tag — best-effort cho popup.
+async fn release_meta(tag: &str) -> (String, String) {
+    let url = format!("https://api.github.com/repos/minhngoc2512/termez/releases/tags/{tag}");
+    let fetch = async {
+        let j: serde_json::Value = reqwest::Client::new()
+            .get(&url)
+            .header("User-Agent", "Termez")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok::<_, anyhow::Error>((
+            j["html_url"].as_str().unwrap_or("").to_string(),
+            j["body"].as_str().unwrap_or("").to_string(),
+        ))
+    };
+    fetch.await.unwrap_or_default()
+}
+
 /// Phiên bản hiện tại (lấy từ Cargo.toml lúc biên dịch).
 #[tauri::command]
 pub fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// So sánh với release mới nhất trên GitHub.
+/// So sánh với bản mới nhất. Bản cài apt → so với apt repo (đúng thứ `apt upgrade`
+/// lấy được, tránh popup "ma" khi GitHub đã có nhưng repo chưa). Còn lại → GitHub.
 #[tauri::command]
 pub async fn check_update() -> R<UpdateInfo> {
     let current = env!("CARGO_PKG_VERSION").to_string();
+
+    if is_apt_install() {
+        let latest = fetch_apt_version().await.unwrap_or_else(|_| current.clone());
+        let has_update = version_gt(&latest, &current);
+        let (url, notes) = if has_update {
+            release_meta(&format!("v{latest}")).await
+        } else {
+            (String::new(), String::new())
+        };
+        return Ok(UpdateInfo { current, latest, has_update, url, notes });
+    }
+
     let resp = reqwest::Client::new()
         .get(RELEASES_API)
         .header("User-Agent", "Termez")
@@ -911,6 +996,7 @@ fn version_gt(a: &str, b: &str) -> bool {
 /// KHÔNG chạm vào mật khẩu). Chỉ hợp lệ khi cài qua apt/.deb.
 #[tauri::command]
 pub async fn update_apply() -> R<String> {
+    let before = dpkg_installed_version();
     let out = tokio::process::Command::new("pkexec")
         .arg("sh")
         .arg("-c")
@@ -919,6 +1005,15 @@ pub async fn update_apply() -> R<String> {
         .await
         .map_err(|err| format!("Không chạy được pkexec/apt: {err}"))?;
     if out.status.success() {
+        // apt chạy OK nhưng version không đổi → repo chưa có bản mới (no-op).
+        // Báo rõ để UI không lặng lẽ khởi động lại làm người dùng tưởng lỗi.
+        let after = dpkg_installed_version();
+        if before.is_some() && before == after {
+            return Err(format!(
+                "NOUPDATE|apt repo chưa có bản mới (đang ở {}). Bản mới có thể chưa được đẩy lên repo — thử lại sau ít phút.",
+                before.unwrap_or_default()
+            ));
+        }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
         let code = out.status.code().unwrap_or(-1);

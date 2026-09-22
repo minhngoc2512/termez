@@ -69,7 +69,14 @@ export function UpdateManager() {
       // Khởi động lại để dùng bản mới.
       await api.appRelaunch();
     } catch (e) {
-      alertDialog({ title: "Cập nhật thất bại", message: String(e) });
+      const msg = String(e);
+      if (msg.includes("NOUPDATE|")) {
+        // apt repo chưa có bản mới → không phải lỗi, báo nhẹ nhàng.
+        alertDialog({ title: "Chưa có bản cập nhật", message: msg.split("NOUPDATE|")[1] });
+        setAvail(null);
+      } else {
+        alertDialog({ title: "Cập nhật thất bại", message: msg });
+      }
     } finally {
       setApplying(false);
     }
