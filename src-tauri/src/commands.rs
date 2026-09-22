@@ -108,6 +108,126 @@ fn resolve_proxy(host: &Host) -> R<Option<ProxyConfig>> {
     }
 }
 
+/// Dựng AuthMethod từ form (test trước khi lưu): ưu tiên mật khẩu/passphrase vừa
+/// nhập; nếu để trống và đang sửa host cũ thì lấy lại từ keychain.
+fn auth_from_input(input: &HostInput) -> R<AuthMethod> {
+    let typed = input.password.clone().filter(|p| !p.is_empty());
+    match input.auth_type.as_str() {
+        "password" => {
+            let pw = typed
+                .or_else(|| {
+                    input
+                        .id
+                        .as_ref()
+                        .and_then(|id| keychain::get_secret(&keychain::host_password(id)).ok().flatten())
+                })
+                .ok_or_else(|| "Chưa nhập mật khẩu".to_string())?;
+            Ok(AuthMethod::Password(pw))
+        }
+        "key" => {
+            // passphrase key: ô password mới nhập, hoặc keychain của host cũ.
+            let passphrase = typed.or_else(|| {
+                input
+                    .id
+                    .as_ref()
+                    .and_then(|id| keychain::get_secret(&keychain::host_password(id)).ok().flatten())
+            });
+            if let Some(kid) = &input.key_id {
+                let pem = keychain::get_secret(&keychain::key_secret(kid))
+                    .map_err(e)?
+                    .ok_or_else(|| "Không tìm thấy private key trong keychain".to_string())?;
+                let kpass = keychain::get_secret(&keychain::key_passphrase(kid))
+                    .map_err(e)?
+                    .or(passphrase);
+                Ok(AuthMethod::Key { pem, passphrase: kpass })
+            } else if let Some(path) = input.private_key_path.clone().filter(|p| !p.is_empty()) {
+                let pem = std::fs::read_to_string(expand_tilde(&path))
+                    .map_err(|err| format!("đọc key file lỗi: {err}"))?;
+                Ok(AuthMethod::Key { pem, passphrase })
+            } else {
+                Err("Host dùng key nhưng chưa chọn key".into())
+            }
+        }
+        other => Err(format!("auth_type '{other}' chưa hỗ trợ")),
+    }
+}
+
+/// Dựng ProxyConfig từ form (mật khẩu proxy: vừa nhập hoặc keychain của host cũ).
+fn proxy_from_input(input: &HostInput) -> R<Option<ProxyConfig>> {
+    match input.proxy_type.as_deref() {
+        Some(kind) if !kind.is_empty() && kind != "none" => {
+            let phost = input
+                .proxy_host
+                .clone()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "Proxy thiếu địa chỉ".to_string())?;
+            let port = input.proxy_port.unwrap_or(1080) as u16;
+            let password = input.proxy_password.clone().filter(|p| !p.is_empty()).or_else(|| {
+                input
+                    .id
+                    .as_ref()
+                    .and_then(|id| keychain::get_secret(&keychain::proxy_password(id)).ok().flatten())
+            });
+            Ok(Some(ProxyConfig {
+                kind: kind.to_string(),
+                host: phost,
+                port,
+                username: input.proxy_username.clone(),
+                password,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Test kết nối tới server bằng giá trị đang nhập trong form (chưa lưu).
+#[tauri::command]
+pub async fn ssh_test(state: State<'_, AppState>, input: HostInput) -> R<String> {
+    let address = input.address.trim().to_string();
+    if address.is_empty() {
+        return Err("Chưa nhập địa chỉ".into());
+    }
+    let username = input.username.trim().to_string();
+    let port = input.port as u16;
+    let auth = auth_from_input(&input)?;
+    let proxy = proxy_from_input(&input)?;
+    // Jump host phải là host đã lưu → dùng secret trong keychain của nó.
+    let jump = if let Some(jid) = &input.jump_host_id {
+        let jhost = db::get_host(&state.db, jid).await.map_err(e)?;
+        let jauth = resolve_auth(&jhost)?;
+        let jproxy = resolve_proxy(&jhost)?;
+        let inner = resolve_jump(&state.db, &jhost, 1).await?;
+        Some(Box::new(JumpConfig {
+            address: jhost.address.clone(),
+            port: jhost.port as u16,
+            username: jhost.username.clone(),
+            auth: jauth,
+            proxy: jproxy,
+            jump: inner,
+        }))
+    } else {
+        None
+    };
+    let expected = db::get_known_host(&state.db, &address, port)
+        .await
+        .map_err(e)?
+        .map(|k| k.fingerprint);
+    let proxy_command = input.proxy_command.clone().filter(|s| !s.is_empty());
+    let conn = crate::conn::connect_authenticated(
+        &address, port, &username, auth, false, proxy, jump, expected, false, proxy_command,
+    )
+    .await
+    .map_err(|err| {
+        if err.to_string().starts_with("HOSTKEY\t") {
+            "Host key đã đổi — mở terminal tới host này để xác minh trước.".to_string()
+        } else {
+            err.to_string()
+        }
+    })?;
+    drop(conn); // đóng ngay, chỉ cần biết kết nối + xác thực OK
+    Ok(format!("Kết nối tới {username}@{address}:{port} thành công."))
+}
+
 type R<T> = Result<T, String>;
 
 fn e<E: std::fmt::Display>(err: E) -> String {

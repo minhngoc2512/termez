@@ -256,6 +256,7 @@ export const api = {
 
   getHosts: () => invoke<Host[]>("get_hosts"),
   upsertHost: (input: HostInput) => invoke<Host>("upsert_host", { input }),
+  sshTest: (input: HostInput) => invoke<string>("ssh_test", { input }),
   deleteHost: (id: string) => invoke<void>("delete_host", { id }),
   importSshConfig: () => invoke<string>("import_ssh_config"),
   monitorStart: (hostId: string) => invoke<void>("monitor_start", { hostId }),

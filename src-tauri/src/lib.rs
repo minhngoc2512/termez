@@ -70,6 +70,7 @@ pub fn run() {
             commands::import_key,
             commands::delete_key,
             commands::ssh_connect,
+            commands::ssh_test,
             commands::ssh_send,
             commands::ssh_resize,
             commands::ssh_disconnect,

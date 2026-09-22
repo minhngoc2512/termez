@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, PlugZap } from "lucide-react";
 import { api, AuthType, Host, HostInput } from "../lib/ipc";
 import { promptDialog, alertDialog } from "../lib/dialogs";
 import { TERM_THEMES } from "../lib/themes";
@@ -61,6 +61,8 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [showAdv, setShowAdv] = useState(false);
   const [startup, setStartup] = useState("");
   const [keepalive, setKeepalive] = useState(false);
@@ -98,6 +100,7 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
     setJumpHostId(host?.jump_host_id ?? null);
     setProxyCommand(host?.proxy_command ?? "");
     setError(null);
+    setTestMsg(null);
     setShowAdv(false);
   }, [open, host, preset]);
 
@@ -113,10 +116,8 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
     }
   }
 
-  async function save() {
-    setSaving(true);
-    setError(null);
-    const input: HostInput = {
+  function buildInput(): HostInput {
+    return {
       id: host?.id ?? null,
       group_id: groupId,
       label: label.trim() || address,
@@ -140,8 +141,26 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
       jump_host_id: jumpHostId,
       proxy_command: proxyCommand.trim() || null,
     };
+  }
+
+  async function testConn() {
+    setTesting(true);
+    setTestMsg(null);
     try {
-      await api.upsertHost(input);
+      const msg = await api.sshTest(buildInput());
+      setTestMsg({ ok: true, text: msg });
+    } catch (e) {
+      setTestMsg({ ok: false, text: String(e) });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.upsertHost(buildInput());
       onSaved();
       onOpenChange(false);
     } catch (e) {
@@ -355,11 +374,31 @@ export function HostForm({ open, host, preset, onOpenChange, onSaved }: Props) {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={save} disabled={saving || !address}>
-            {saving ? "Saving…" : "Save"}
+        {testMsg && (
+          <div
+            className={
+              "flex items-start gap-2 rounded-lg border p-2.5 text-sm " +
+              (testMsg.ok
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-destructive/30 bg-destructive/10 text-destructive")
+            }
+          >
+            {testMsg.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+            <span className="min-w-0 break-words">{testMsg.text}</span>
+          </div>
+        )}
+
+        <DialogFooter className="sm:justify-between">
+          <Button variant="outline" onClick={testConn} disabled={testing || saving || !address}>
+            {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
+            {testing ? "Testing…" : "Test connection"}
           </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={save} disabled={saving || !address}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
