@@ -4,7 +4,7 @@ import { ref } from "vue";
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.2.11";
+const VERSION = "v0.2.18";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
@@ -30,8 +30,9 @@ const features = [
   { key: "Monitor", dot: "bg-prompt", title: "Live host metrics", desc: "Real-time CPU, memory, disk and network charts, opened as their own tab." },
   { key: "Scan", dot: "bg-magenta", title: "Network scan", desc: "Discover LAN devices by IP, MAC and vendor, sweep hosts and ports, and add a host in one click." },
   { key: "Secure", dot: "bg-cyan", title: "Locked down", desc: "Secrets live in the OS keychain, an app lock adds TOTP, and host keys are verified on first use." },
-  { key: "Sync", dot: "bg-amber", title: "Encrypted cloud sync", desc: "Back up your vault to a private GitHub repo, end-to-end encrypted, with automatic pull and conflict handling." },
+  { key: "Sync", dot: "bg-amber", title: "Encrypted cloud sync", desc: "Back up your vault to a private GitHub repo, end-to-end encrypted, with automatic pull and record-level merge across devices." },
   { key: "Tunnel", dot: "bg-prompt", title: "Tunnels & DNS", desc: "Reach hosts through ProxyCommand, import ~/.ssh/config, and manage Cloudflare DNS from the app." },
+  { key: "Reliable", dot: "bg-magenta", title: "Resilient sessions", desc: "Test a connection before you save it, watch live SSH latency per pane, and auto-reconnect when the network drops — with a clear status while connecting." },
 ];
 </script>
 

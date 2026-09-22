@@ -88,10 +88,17 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 - **Split view** (dockview): drag a tab to any edge to tile panes; drag to reorder/merge
 - **Broadcast**: type once, send to every open pane
 - Per-host **terminal theme & font size**; hover a tab to copy the host IP
+- **Connection status popup** (Connecting → on failure: error + Retry / Exit)
+- **Auto-reconnect** on network drop (a few tries with backoff), and the pane
+  **auto-closes** when the shell exits (`exit`)
+- **Live latency badge** per pane (SSH round-trip ping, works through jump/proxy)
+- Optional **"wait for shell ready"** and a **Vietnamese input fix** (normalizes the
+  no-break space some IMEs insert, so commands don't become "not found")
 
 **Host management**
 - Hosts in **collapsible groups**; home dashboard + header **search** by name / IP
 - Password or **SSH key** auth (generate ed25519 / rsa, or import a key)
+- **Test connection** button in the host form — verify reachability + auth before saving
 - Per host: startup snippet, keep-alive, **SOCKS5 / HTTP CONNECT** proxy, and
   **jump host (ProxyJump, multi-hop)**
 - **ProxyCommand** support + **`~/.ssh/config` import** — reach hosts behind
@@ -133,7 +140,8 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
   **private GitHub repo**
 - **End-to-end encrypted** (Argon2id + XChaCha20-Poly1305) with a master password
   — GitHub only ever stores ciphertext
-- **Auto-pull** on startup and periodically, with **conflict resolution**
+- **Auto-pull** on startup and periodically, with **record-level 3-way merge**
+  (per-record base/local/remote merge — edits on different devices no longer clobber)
 
 **Security & app lock**
 - Secrets live in the **OS keychain** (Secret Service), never plaintext in the DB
@@ -142,7 +150,9 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 **Settings & updates**
 - App theme **light / dark / system**, terminal theme & font size
-- **About** panel with version and a **GitHub-release update check**
+- **In-app updates**: checks for a new version and, on the apt build, upgrades via
+  `apt` (polkit prompts for the password) then relaunches with a changelog popup
+- **About** panel with the current version
 
 ---
 
