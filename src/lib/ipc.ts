@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 // Khớp với struct serde phía Rust (snake_case).
 export interface Group {
@@ -138,10 +138,6 @@ export interface SftpProgress {
   total: number;
 }
 
-export interface SshDataPayload {
-  id: string;
-  data: string; // base64
-}
 export interface SshClosedPayload {
   id: string;
   clean: boolean; // true = shell tự thoát / ta đóng; false = đứt ngang (mất mạng)
@@ -269,8 +265,9 @@ export const api = {
     invoke<SshKey>("import_key", { name, privateKey, passphrase }),
   deleteKey: (id: string) => invoke<void>("delete_key", { id }),
 
-  sshConnect: (hostId: string, cols: number, rows: number) =>
-    invoke<string>("ssh_connect", { hostId, cols, rows }),
+  // onData: kênh riêng của phiên — Rust đẩy output (đã gom) dạng byte thô.
+  sshConnect: (hostId: string, cols: number, rows: number, onData: Channel<ArrayBuffer>) =>
+    invoke<string>("ssh_connect", { hostId, cols, rows, onData }),
   sshSend: (id: string, data: string) => invoke<void>("ssh_send", { id, data }),
   sshResize: (id: string, cols: number, rows: number) =>
     invoke<void>("ssh_resize", { id, cols, rows }),
@@ -324,6 +321,10 @@ export const api = {
   updateApply: () => invoke<string>("update_apply"),
   releaseNotes: (tag: string) => invoke<string>("release_notes", { tag }),
   appRelaunch: () => invoke<void>("app_relaunch"),
+  renderStatus: () =>
+    invoke<{ supported: boolean; dmabuf: boolean; trial: boolean; env_forced: boolean }>("render_status"),
+  renderSetDmabuf: (enabled: boolean) => invoke<void>("render_set_dmabuf", { enabled }),
+  renderConfirmDmabuf: () => invoke<void>("render_confirm_dmabuf"),
 
   scanHosts: (cidr: string, port: number) => invoke<string[]>("scan_hosts", { cidr, port }),
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),
@@ -412,10 +413,3 @@ export function parentPath(p: string): string {
   return trimmed.slice(0, idx);
 }
 
-/** Giải mã base64 → bytes để ghi vào xterm. */
-export function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}

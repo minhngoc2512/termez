@@ -555,6 +555,7 @@ pub async fn ssh_connect(
     host_id: String,
     cols: u32,
     rows: u32,
+    on_data: tauri::ipc::Channel<tauri::ipc::InvokeResponseBody>,
 ) -> R<String> {
     let host = db::get_host(&state.db, &host_id).await.map_err(e)?;
     let auth = resolve_auth(&host)?;
@@ -568,6 +569,7 @@ pub async fn ssh_connect(
         .ssh
         .connect(
             app,
+            on_data,
             host.address,
             port,
             host.username,

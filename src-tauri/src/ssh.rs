@@ -1,25 +1,24 @@
 use crate::conn::{connect_authenticated, AuthMethod, JumpConfig, ProxyConfig};
-use base64::Engine;
 use russh::ChannelMsg;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::time::Instant;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
+
+/// Gom output terminal rồi mới đẩy lên frontend: chờ tối đa OUT_FLUSH_DELAY kể từ
+/// byte đầu tiên, hoặc đẩy ngay khi đủ OUT_FLUSH_BYTES. Vim cuộn trang sinh ra rất
+/// nhiều gói nhỏ — gộp lại giúp giảm số lần IPC và số lần xterm vẽ lại.
+const OUT_FLUSH_DELAY: Duration = Duration::from_millis(4);
+const OUT_FLUSH_BYTES: usize = 64 * 1024;
 
 /// Lệnh gửi vào task sở hữu SSH channel.
 enum SshInput {
     Data(Vec<u8>),
     Resize { cols: u32, rows: u32 },
     Close,
-}
-
-#[derive(Clone, Serialize)]
-struct DataPayload {
-    id: String,
-    /// dữ liệu terminal, base64 để giữ nguyên byte
-    data: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -52,6 +51,8 @@ impl SshManager {
     pub async fn connect(
         &self,
         app: AppHandle,
+        // Kênh riêng của phiên này: output đi thẳng tới đúng pane, dạng byte thô.
+        on_data: Channel<InvokeResponseBody>,
         address: String,
         port: u16,
         username: String,
@@ -100,8 +101,16 @@ impl SshManager {
             // hoặc ta chủ động đóng. Chỉ `None` (kênh biến mất mà KHÔNG có Close) mới là
             // đứt ngang (mất mạng) → frontend sẽ thử kết nối lại.
             let mut clean = false;
+            let mut out: Vec<u8> = Vec::new();
+            let flush_timer = tokio::time::sleep(Duration::ZERO);
+            tokio::pin!(flush_timer);
+            let mut flush_armed = false;
             loop {
                 tokio::select! {
+                    _ = &mut flush_timer, if flush_armed => {
+                        flush_armed = false;
+                        flush_out(&on_data, &mut out);
+                    }
                     _ = ping_tick.tick() => {
                         // Timeout 5s để không kẹt vòng lặp nếu kết nối nửa-chết.
                         let t = Instant::now();
@@ -114,8 +123,18 @@ impl SshManager {
                     }
                     msg = channel.wait() => {
                         match msg {
-                            Some(ChannelMsg::Data { data }) => emit_data(&app, &sid, &data),
-                            Some(ChannelMsg::ExtendedData { data, .. }) => emit_data(&app, &sid, &data),
+                            Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => {
+                                out.extend_from_slice(&data);
+                                if out.len() >= OUT_FLUSH_BYTES {
+                                    flush_armed = false;
+                                    flush_out(&on_data, &mut out);
+                                } else if !flush_armed {
+                                    flush_timer
+                                        .as_mut()
+                                        .reset(tokio::time::Instant::now() + OUT_FLUSH_DELAY);
+                                    flush_armed = true;
+                                }
+                            }
                             Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::ExitSignal { .. }) => {
                                 clean = true; // shell tự kết thúc (vd user gõ `exit`)
                             }
@@ -144,6 +163,7 @@ impl SshManager {
                     }
                 }
             }
+            flush_out(&on_data, &mut out); // đẩy nốt phần còn lại trước khi báo đóng
             let _ = app.emit("ssh:closed", ClosedPayload { id: sid, clean });
         });
 
@@ -173,13 +193,10 @@ impl SshManager {
     }
 }
 
-fn emit_data(app: &AppHandle, id: &str, data: &[u8]) {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-    let _ = app.emit(
-        "ssh:data",
-        DataPayload {
-            id: id.to_string(),
-            data: encoded,
-        },
-    );
+/// Đẩy phần output đã gom lên frontend (byte thô → ArrayBuffer bên JS).
+fn flush_out(ch: &Channel<InvokeResponseBody>, out: &mut Vec<u8>) {
+    if out.is_empty() {
+        return;
+    }
+    let _ = ch.send(InvokeResponseBody::Raw(std::mem::take(out)));
 }

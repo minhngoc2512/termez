@@ -11,7 +11,8 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SearchAddon, ISearchOptions } from "@xterm/addon-search";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { api, base64ToBytes, SshClosedPayload, SshDataPayload, SshLatencyPayload } from "./ipc";
+import { Channel } from "@tauri-apps/api/core";
+import { api, SshClosedPayload, SshLatencyPayload } from "./ipc";
 import { confirmDialog } from "./dialogs";
 import { activeSessions } from "./broadcast";
 import { resolveTheme } from "./themes";
@@ -426,7 +427,15 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
     pendingLatency(entry); // badge "···" khi đang (re)connect
 
     try {
-    const id = await api.sshConnect(entry.hostId, term.cols, term.rows);
+    // Kênh output riêng của phiên (byte thô, Rust đã gom theo lô). Tạo trước khi
+    // connect nên không mất output ngay lúc đăng nhập (banner/motd).
+    const onData = new Channel<ArrayBuffer>();
+    onData.onmessage = (buf) => {
+      if (entry.disposed) return;
+      term.write(new Uint8Array(buf));
+      bumpQuiet(entry); // có output init → dời mốc "im lặng"
+    };
+    const id = await api.sshConnect(entry.hostId, term.cols, term.rows, onData);
     if (entry.disposed) {
       api.sshDisconnect(id).catch(() => {});
       return;
@@ -446,14 +455,6 @@ async function connect(panelId: string, entry: Entry): Promise<void> {
       entry.ready = true;
     }
 
-    entry.connUnlisteners.push(
-      await listen<SshDataPayload>("ssh:data", (e) => {
-        if (e.payload.id === id) {
-          term.write(base64ToBytes(e.payload.data));
-          bumpQuiet(entry); // có output init → dời mốc "im lặng"
-        }
-      })
-    );
     entry.connUnlisteners.push(
       await listen<SshLatencyPayload>("ssh:latency", (e) => {
         if (e.payload.id === id) setLatency(entry, e.payload.ms);
