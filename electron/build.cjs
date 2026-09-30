@@ -90,6 +90,7 @@ fs.mkdirSync(path.join(STAGE, "native"), { recursive: true });
 for (const f of ["main.cjs", "preload.cjs"]) {
   fs.copyFileSync(path.join(__dirname, f), path.join(STAGE, "electron", f));
 }
+fs.copyFileSync(path.join(__dirname, "resources", "icon.png"), path.join(STAGE, "electron", "icon.png")); // icon cửa sổ
 fs.copyFileSync(nativeOut, path.join(STAGE, "native", "termez_native.node"));
 fs.cpSync(path.join(ROOT, "dist"), path.join(STAGE, "dist"), { recursive: true });
 fs.writeFileSync(

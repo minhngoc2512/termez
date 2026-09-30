@@ -200,8 +200,14 @@ ipcMain.handle("tz:invoke", async (e, cmd, args) => {
 
 // ---------- Cửa sổ ----------
 
+// Icon cửa sổ (Linux taskbar/AppImage). Bản đóng gói: cạnh main.cjs; dev: electron/resources.
+const WINDOW_ICON = [path.join(__dirname, "icon.png"), path.join(__dirname, "resources", "icon.png")].find((p) =>
+  fs.existsSync(p)
+);
+
 function createWindow({ url, title, width, height } = {}) {
   const win = new BrowserWindow({
+    icon: WINDOW_ICON,
     width: width || 1280,
     height: height || 820,
     frame: false, // giống bản Tauri (decorations: false, TitleBar tự vẽ)

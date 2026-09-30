@@ -29,7 +29,7 @@ extraFiles:
 linux:
   target: [deb, rpm, AppImage]
   executableName: termez
-  icon: src-tauri/icons/icon.png
+  icon: electron/resources/icon.png # logo Termez (chữ T con trỏ), 1024px
   category: Development
   synopsis: SSH/SFTP manager
   description: Termez — SSH/SFTP manager
@@ -55,7 +55,7 @@ mac:
   target:
     - target: dmg
       arch: universal
-  icon: src-tauri/icons/icon.icns
+  icon: electron/resources/icon-mac.png # có lề theo lưới icon Apple; electron-builder tự đổi sang .icns
   category: public.app-category.developer-tools
   identity: null # chưa ký (giống bản Tauri)
   # Module native + sidecar đã được lipo thành universal sẵn trong cả hai bản build.
@@ -68,7 +68,7 @@ dmg:
 
 win:
   target: [nsis, msi]
-  icon: src-tauri/icons/icon.ico
+  icon: electron/resources/icon.png # electron-builder tự đổi sang .ico
 nsis:
   artifactName: Termez_${version}_x64-setup.${ext}
   oneClick: false

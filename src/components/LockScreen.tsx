@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { Logo } from "./Logo";
 import { api } from "../lib/ipc";
 import { useStore } from "../store";
 import { Input } from "@/components/ui/input";
@@ -34,7 +35,10 @@ export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
           <Lock className="size-7" />
         </span>
         <div className="text-center">
-          <div className="text-lg font-semibold">⌘ Termez is locked</div>
+          <div className="flex items-center justify-center gap-2 text-lg font-semibold">
+            <Logo className="size-5" />
+            Termez is locked
+          </div>
           <div className="text-sm text-muted-foreground">Enter your app password to unlock.</div>
         </div>
         <Input

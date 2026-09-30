@@ -10,6 +10,7 @@ import {
 import "dockview-react/dist/styles/dockview.css";
 import { Radio, Columns2, FolderOpen, Home, Code2, Plus } from "lucide-react";
 import { TitleBar } from "./components/TitleBar";
+import { Logo } from "./components/Logo";
 import { FeatureNav, Section } from "./components/FeatureNav";
 import { HostsPage } from "./components/HostsPage";
 import { HostSearch } from "./components/HostSearch";
@@ -481,7 +482,10 @@ export default function App() {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
         <TitleBar />
-        <div className="flex flex-1 items-center justify-center text-2xl font-semibold text-muted-foreground">⌘ Termez</div>
+        <div className="flex flex-1 items-center justify-center gap-3 text-2xl font-semibold text-muted-foreground">
+          <Logo className="size-9" />
+          Termez
+        </div>
       </div>
     );
   }

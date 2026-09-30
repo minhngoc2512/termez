@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, X, PanelLeft, Lock } from "lucide-react";
+import { Logo } from "./Logo";
 
 async function ctl(action: "min" | "max" | "close") {
   try {
@@ -28,7 +29,10 @@ export function TitleBar({ onToggleNav, onLock }: { onToggleNav?: () => void; on
             <PanelLeft className="size-4" />
           </button>
         )}
-        <span data-tauri-drag-region className="pointer-events-none text-sm font-semibold">⌘ Termez</span>
+        <span data-tauri-drag-region className="pointer-events-none flex items-center gap-1.5 text-sm font-semibold">
+          <Logo className="size-4" />
+          Termez
+        </span>
         {onLock && (
           <button
             onClick={onLock}

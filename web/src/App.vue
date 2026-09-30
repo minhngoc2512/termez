@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from "vue";
+import logoUrl from "./assets/logo.svg"; // Vite sinh đường dẫn đúng với base "./" (site ở /termez/)
 
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
@@ -41,7 +42,7 @@ const features = [
     <!-- Menu bar (like the app titlebar) -->
     <header class="sticky top-0 z-30 border-b border-line bg-ink/85 backdrop-blur">
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-2.5 font-mono text-sm">
-        <span class="text-prompt">⌘</span>
+        <img :src="logoUrl" alt="" class="size-5" />
         <span class="font-semibold tracking-tight">Termez</span>
         <span class="rounded border border-line px-1.5 py-0.5 text-[11px] text-muted">{{ VERSION }}</span>
         <nav class="ml-auto hidden items-center gap-6 text-muted sm:flex">
@@ -208,7 +209,7 @@ eth0 <span class="text-magenta">167.172.74.61</span>
     <!-- Footer: tmux-style status line -->
     <footer class="border-t border-line">
       <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3 font-mono text-xs">
-        <span class="rounded bg-prompt px-2 py-0.5 text-ink">⌘ Termez</span>
+        <span class="flex items-center gap-1.5 rounded bg-prompt px-2 py-0.5 text-ink"><img :src="logoUrl" alt="" class="size-3.5" />Termez</span>
         <span class="text-muted">SSH / SFTP manager</span>
         <span class="ml-auto text-muted">{{ VERSION }}</span>
         <a :href="GITHUB" target="_blank" rel="noopener" class="text-muted hover:text-fg">GitHub</a>
