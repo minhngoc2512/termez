@@ -1,6 +1,6 @@
 [package]
 name = "termez-native"
-version = "0.3.0-beta.2" # = version app (app_version, check_update đọc giá trị này)
+version = "0.3.0-beta.3" # = version app (app_version, check_update đọc giá trị này)
 edition = "2021"
 publish = false
 description = "Backend Rust của Termez (nguyên văn từ src-tauri/src) bọc thành module Node (napi) cho bản Electron"

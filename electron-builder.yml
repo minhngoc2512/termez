@@ -29,7 +29,7 @@ extraFiles:
 linux:
   target: [deb, rpm, AppImage]
   executableName: termez
-  icon: electron/resources/icon.png # logo Termez (chữ T con trỏ), 1024px
+  icon: electron/resources/linux-icons # bộ icon 16…512px (cỡ chuẩn hicolor), sinh bởi electron/render-icons.cjs
   category: Development
   synopsis: SSH/SFTP manager
   description: Termez — SSH/SFTP manager

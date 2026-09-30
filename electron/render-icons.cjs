@@ -11,6 +11,9 @@ const jobs = [
   ["logo.svg", "icon.png", 1024],
   ["logo-mac.svg", "icon-mac.png", 1024],
   ...[16, 32, 64, 128].map((s) => ["logo.svg", path.join("preview", `icon-${s}.png`), s]),
+  // Bộ icon Linux theo các cỡ chuẩn của theme hicolor (không có 1024 → phải đủ cỡ, nếu
+  // không menu ứng dụng sẽ không tìm thấy icon). electron-builder: linux.icon = thư mục này.
+  ...[16, 24, 32, 48, 64, 128, 256, 512].map((s) => ["logo.svg", path.join("linux-icons", `${s}x${s}.png`), s]),
 ];
 
 // Một cửa sổ offscreen dùng lại cho mọi cỡ (tạo/huỷ liên tục dễ làm lỗi nạp trang).
@@ -37,6 +40,7 @@ app.whenReady().then(async () => {
     useContentSize: true, webPreferences: { offscreen: true },
   });
   fs.mkdirSync(path.join(RES, "preview"), { recursive: true });
+  fs.mkdirSync(path.join(RES, "linux-icons"), { recursive: true });
   for (const [src, out, size] of jobs) {
     fs.writeFileSync(path.join(RES, out), await render(src, size));
     console.log(`✓ ${out} (${size}px)`);
