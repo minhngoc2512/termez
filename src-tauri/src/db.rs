@@ -106,11 +106,22 @@ fn now() -> i64 {
 pub async fn init_pool(path: &Path) -> anyhow::Result<SqlitePool> {
     let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))?
         .create_if_missing(true);
+    // Migration chạy trên MỘT kết nối riêng rồi đóng hẳn, trước khi mở pool chính.
+    // Nếu chạy thẳng trên pool, các bước có thể rơi vào nhiều kết nối khác nhau:
+    // kết nối mở trước `ALTER TABLE … ADD COLUMN` giữ schema cũ, prepare
+    // `SELECT * FROM hosts` với số cột cũ, rồi SQLite tự prepare lại với số cột
+    // mới → sqlx lệch cột (panic "index out of bounds" trong worker, query lỗi).
+    let setup = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts.clone())
+        .await?;
+    migrate(&setup).await?;
+    setup.close().await;
+
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(opts)
         .await?;
-    migrate(&pool).await?;
     Ok(pool)
 }
 
