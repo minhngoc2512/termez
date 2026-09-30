@@ -9,6 +9,10 @@ directories:
   output: release
   buildResources: electron/resources
 
+# Gói .deb phải < 100 MB (apt repo nằm trên GitHub Pages, git chặn file > 100 MB).
+compression: maximum
+electronLanguages: [en-US, vi] # Chromium mặc định kèm 55 file ngôn ngữ; app chỉ dùng en/vi
+
 asar: true
 asarUnpack:
   - native/** # module .node không nạp được từ trong asar

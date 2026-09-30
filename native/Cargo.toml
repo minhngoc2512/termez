@@ -54,3 +54,4 @@ napi-build = "2"
 
 [profile.release]
 lto = "thin"
+strip = true # bỏ symbol debug: module 17 MB → nhỏ hơn nhiều (gói .deb phải < 100 MB, giới hạn file của GitHub)
