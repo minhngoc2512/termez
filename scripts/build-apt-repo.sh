@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 #
-# Build the Termez .deb and assemble a *signed flat apt repository* that can be
-# served over plain HTTP(S) — e.g. GitHub Pages. Users then install with `apt`
-# and receive future versions through `apt upgrade`.
+# Assemble a *signed flat apt repository* for the Termez .deb, served over plain
+# HTTP(S) by GitHub Pages. Users install with `apt` and get updates via `apt upgrade`.
+#
+# By default the .deb is DOWNLOADED from the GitHub Release `v<version>` (built by
+# CI), so apt serves byte-for-byte the same file as the Release. The .deb itself is
+# NOT committed to git (GitHub rejects files > 100 MB); the Pages workflow
+# (.github/workflows/pages.yml) fetches it from the Release at deploy time and checks
+# its SHA256 against this index. Set LOCAL_BUILD=1 to build the .deb locally instead.
 #
 # Prerequisites (Ubuntu/Debian):
 #   sudo apt install dpkg-dev apt-utils gnupg
@@ -45,14 +50,26 @@ elif [[ -t 0 ]]; then
   unset _pp
 fi
 
-echo "==> Building release bundle (.deb)…"
 cd "$ROOT"
-# Bản Electron: build.cjs dựng giao diện + module native + sidecar rồi đóng gói.
-node electron/build.cjs --linux deb
-
-DEB="$(ls -t "$ROOT"/release/*.deb | head -n1)"
-[[ -f "$DEB" ]] || { echo "!! No .deb produced." >&2; exit 1; }
-echo "==> Built: $DEB"
+VERSION="$(node -p 'require("./package.json").version')"
+if [[ "${LOCAL_BUILD:-0}" == "1" ]]; then
+  echo "==> Building release bundle (.deb) locally…"
+  node electron/build.cjs --linux deb
+  DEB="$(ls -t "$ROOT"/release/*.deb | head -n1)"
+else
+  TAG="${TAG:-v$VERSION}"
+  SLUG="$(git remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+  echo "==> Downloading the .deb of $TAG from the GitHub Release ($SLUG)…"
+  URL="$(gh api "repos/$SLUG/releases/tags/$TAG" -q '.assets[] | select(.name|endswith("_amd64.deb")) | .browser_download_url' | head -n1)"
+  [[ -n "$URL" ]] || { echo "!! No *_amd64.deb on release $TAG (did CI finish?)." >&2; exit 1; }
+  mkdir -p "$ROOT/release"
+  DEB="$ROOT/release/$(basename "$URL")"
+  curl -fL --retry 3 -o "$DEB" "$URL"
+fi
+[[ -f "$DEB" ]] || { echo "!! No .deb." >&2; exit 1; }
+DEB_VER="$(dpkg-deb -f "$DEB" Version)"
+[[ "$DEB_VER" == "${VERSION//-/\~}" ]] || { echo "!! $DEB is version $DEB_VER, expected $VERSION." >&2; exit 1; }
+echo "==> .deb: $DEB ($DEB_VER)"
 
 echo "==> Assembling flat apt repo in $OUT"
 rm -rf "$OUT"

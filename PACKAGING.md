@@ -26,8 +26,10 @@ Keep this key private. Only its **public** half is shipped to users.
 GPG_KEY_ID=you@example.com scripts/build-apt-repo.sh
 ```
 
-This builds `Termez_<version>_amd64.deb` and assembles a signed *flat* apt repo
-in `./apt-repo/` (Packages index, Release/InRelease, and the public keyring).
+This **downloads** `Termez_<version>_amd64.deb` from the GitHub Release
+`v<version>` (built by CI — run it after CI finishes) and assembles a signed *flat*
+apt repo in `./apt-repo/` (Packages index, Release/InRelease, public keyring).
+`LOCAL_BUILD=1` builds the `.deb` locally instead.
 
 The version comes from `package.json` — bump it there **and** in
 `native/Cargo.toml` (+ `native/Cargo.lock`) for each release; `electron/build.cjs`
@@ -46,20 +48,18 @@ refuses to build if they differ. Pre-releases (`0.3.0-beta.1`) become
 
 ## 3. Publish to GitHub Pages
 
-One command pushes `apt-repo/` to the `gh-pages` branch (served at
-`https://minhngoc2512.github.io/termez/apt`) without touching your main tree:
+One command pushes the **index** (not the `.deb`) to the `gh-pages` branch and
+starts the Pages workflow, which serves `https://minhngoc2512.github.io/termez/apt`:
 
 ```bash
 scripts/publish-apt.sh
 ```
 
-It creates the orphan `gh-pages` on first run, updates it in place afterwards
-(old package versions stay available), and enables GitHub Pages via `gh` when
-possible. Override with `BRANCH=…` / `SUBDIR=…` if you host differently.
-
-If you'd rather do it by hand: put `apt-repo/*` under `apt/` on a `gh-pages`
-branch, add a `.nojekyll`, push, and enable Pages (Settings → Pages → branch
-`gh-pages`, folder `/`).
+Pages is deployed by `.github/workflows/pages.yml` (Settings → Pages → Source:
+**GitHub Actions**): it builds the website, adds the index from `gh-pages:/apt`,
+downloads each `.deb` listed in `Packages` from its GitHub Release and checks the
+SHA256 against the index before deploying. The `.deb` never goes into git —
+GitHub rejects files over 100 MB, and each release would bloat the branch.
 
 ## 4. How users install
 

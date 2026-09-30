@@ -1,0 +1,69 @@
+name: Deploy site
+
+# GitHub Pages (nguồn: "GitHub Actions") = website (web/) + apt repo (/apt).
+#
+# - Chỉ mục apt (Packages, Release, InRelease, keyring — đã ký sẵn trên máy người
+#   bảo trì) lấy từ nhánh gh-pages; scripts/publish-apt.sh đẩy lên đó.
+# - File .deb KHÔNG nằm trong git (GitHub chặn file > 100 MB): tải từ GitHub
+#   Release theo Version trong Packages, rồi so SHA256 với chỉ mục — lệch thì dừng,
+#   không deploy (apt sẽ từ chối gói sai hash).
+#
+# Chạy khi web/ đổi trên main, khi publish-apt.sh gọi (workflow_dispatch), hoặc chạy tay.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chỉ mục apt (nhánh gh-pages)
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: ghp
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Website
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Ghép website + apt (.deb lấy từ Release, kiểm SHA256)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/assemble-pages.sh web/dist ghp/apt site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

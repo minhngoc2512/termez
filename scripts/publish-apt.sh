@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Publish the signed apt repository built by scripts/build-apt-repo.sh to the
-# `gh-pages` branch, served by GitHub Pages at:
-#   https://<user>.github.io/<repo>/apt
+# Publish the signed apt INDEX built by scripts/build-apt-repo.sh (Packages,
+# Release, InRelease, keyring — small files) to the `gh-pages` branch, then trigger
+# the Pages workflow, which serves it at https://<user>.github.io/<repo>/apt
+# together with the .deb fetched from the GitHub Release (SHA256-checked).
 #
-# It never touches your main working tree: the branch is updated through a
-# throwaway git worktree. First run creates an orphan `gh-pages`; later runs
-# update it in place (so old package versions stay available for `apt`).
+# The .deb is NOT committed: GitHub rejects files > 100 MB and each release would
+# bloat the branch by ~100 MB. The branch is updated through a throwaway worktree.
 #
 # Usage:
 #   scripts/build-apt-repo.sh   # produces ./apt-repo (run this first)
@@ -46,26 +46,21 @@ fi
 # Replace the repo contents (fresh index for the subdir) and keep Pages happy.
 rm -rf "${WT:?}/$SUBDIR"
 mkdir -p "$WT/$SUBDIR"
-cp "$SRC"/* "$WT/$SUBDIR/"
+find "$SRC" -maxdepth 1 -type f ! -name '*.deb' -exec cp {} "$WT/$SUBDIR/" \;
 touch "$WT/.nojekyll"
 
 cd "$WT"
 git add -A
-if git diff --cached --quiet; then
-  echo "==> No changes to publish."
-  exit 0
-fi
-
 VER="$(grep -m1 '^Version:' "$SRC/Packages" | awk '{print $2}')"
-git commit -q -m "Publish apt repo (${VER:-update})"
-git push origin "$BRANCH"
-
-# Best-effort: make sure Pages is enabled for this branch/path.
-if command -v gh >/dev/null 2>&1; then
-  SLUG="$(git -C "$ROOT" remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
-  gh api "repos/$SLUG/pages" >/dev/null 2>&1 || \
-    gh api -X POST "repos/$SLUG/pages" -f "source[branch]=$BRANCH" -f "source[path]=/" >/dev/null 2>&1 || true
-  echo "==> Published. Live shortly at: https://$(echo "$SLUG" | sed 's#/#.github.io/#')/$SUBDIR"
+if git diff --cached --quiet; then
+  echo "==> Index unchanged on $BRANCH."
 else
-  echo "==> Pushed $BRANCH. Enable GitHub Pages (branch $BRANCH, / root) if not already."
+  git commit -q -m "Publish apt index (${VER:-update})"
+  git push origin "$BRANCH"
 fi
+
+# Deploy: the Pages workflow builds the website, adds this index and pulls the
+# .deb from the GitHub Release (verifying its SHA256 against Packages).
+SLUG="$(git -C "$ROOT" remote get-url origin | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')"
+gh workflow run pages.yml -R "$SLUG" --ref main
+echo "==> Deploy started (workflow pages.yml). Live in ~2 min at: https://$(echo "$SLUG" | sed 's#/#.github.io/#')/$SUBDIR"
