@@ -4,7 +4,7 @@ import { ref } from "vue";
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.2.18";
+const VERSION = "v0.2.21";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
@@ -23,7 +23,7 @@ function copy(text, key) {
 
 // key = a terminal-ish label; dot = ANSI accent, cycled
 const features = [
-  { key: "Terminal", dot: "bg-prompt", title: "Multiplexed terminals", desc: "Real SSH PTYs with split panes and Broadcast — type once, send to every pane at once." },
+  { key: "Terminal", dot: "bg-prompt", title: "Multiplexed terminals", desc: "Real SSH PTYs with WebGL rendering, split panes and Broadcast. Find in the buffer with Ctrl+Shift+F, click links, and yank from vim or tmux straight to your clipboard." },
   { key: "Workspaces", dot: "bg-magenta", title: "Workspaces that tile", desc: "Every host is a task. Drag one onto another to split into a workspace, and switch back and forth without dropping a session." },
   { key: "Vault", dot: "bg-cyan", title: "Password vault", desc: "A KeePassXC-style vault: folder tree, .kdbx import, TOTP, and a clipboard that clears itself after ten seconds." },
   { key: "Storage", dot: "bg-amber", title: "Object storage", desc: "Browse S3, R2, GCS and MinIO — upload, download, and move files between buckets like SFTP." },

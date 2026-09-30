@@ -85,6 +85,11 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 **Terminals**
 - SSH terminal with a real PTY (via [`russh`](https://crates.io/crates/russh), `ring` backend)
+- **WebGL rendering** (auto-fallback) — no leftover "ghost" text when scrolling in vim/less;
+  output is streamed per session and batched for fewer redraws
+- **Find in terminal** (`Ctrl+Shift+F`): live highlight, match counter, next/prev, match case
+- **Clickable links** in output, **Unicode 11** wide-char/emoji widths, and
+  **OSC 52 clipboard** (yank in vim/tmux on the server → local clipboard)
 - **Split view** (dockview): drag a tab to any edge to tile panes; drag to reorder/merge
 - **Broadcast**: type once, send to every open pane
 - Per-host **terminal theme & font size**; hover a tab to copy the host IP
@@ -150,6 +155,8 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 **Settings & updates**
 - App theme **light / dark / system**, terminal theme & font size
+- Linux: optional **GPU acceleration** (WebKitGTK DMABUF) — off by default; turning it on
+  runs a trial launch and asks you to confirm, so a black screen reverts on the next start
 - **In-app updates**: checks for a new version and, on the apt build, upgrades via
   `apt` (polkit prompts for the password) then relaunches with a changelog popup
 - **About** panel with the current version
