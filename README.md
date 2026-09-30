@@ -1,7 +1,9 @@
-# ⌘ Termez
+<img src="electron/resources/logo.svg" alt="" width="72" />
 
-A fast, native-feeling **SSH / SFTP manager** for Linux, macOS and Windows — a Termius-style desktop
-client built with **Tauri (Rust)** + **React**. Manage a fleet of servers, split
+# Termez
+
+A fast **SSH / SFTP manager** for Linux, macOS and Windows — a Termius-style desktop
+client built with **Electron** (Chromium) + a **Rust** backend + **React**. Manage a fleet of servers, split
 terminals, browse and move files, keep passwords and cloud storage, watch hosts
 live, and back everything up to your own GitHub repo with end-to-end encryption.
 
@@ -74,7 +76,7 @@ Intel), open it and drag Termez to Applications.
 Download **`Termez_*_x64_en-US.msi`** (or `Termez_*_x64-setup.exe`) and run it.
 
 > The installer is **unsigned**, so SmartScreen may warn: click **More info →
-> Run anyway**. Requires the WebView2 runtime (preinstalled on Windows 11).
+> Run anyway**.
 
 An `.rpm` is also attached to each release. Maintainer packaging steps live in
 [PACKAGING.md](PACKAGING.md).
@@ -155,8 +157,6 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 **Settings & updates**
 - App theme **light / dark / system**, terminal theme & font size
-- Linux: optional **GPU acceleration** (WebKitGTK DMABUF) — off by default; turning it on
-  runs a trial launch and asks you to confirm, so a black screen reverts on the next start
 - **In-app updates**: checks for a new version and, on the apt build, upgrades via
   `apt` (polkit prompts for the password) then relaunches with a changelog popup
 - **About** panel with the current version
@@ -167,7 +167,7 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 | Layer | Tech |
 |-------|------|
-| Shell | Tauri 2 (Rust), custom titlebar |
+| Shell | Electron (Chromium), custom titlebar; Rust backend loaded as a native Node module (`napi-rs`) |
 | SSH / SFTP | `russh` (ring), `russh-sftp` |
 | Crypto | `argon2`, `chacha20poly1305`, `totp-rs` (2FA) |
 | Proxy / tunnels | `tokio-socks`, `async-http-proxy`, ProxyCommand, direct-tcpip |
@@ -181,28 +181,27 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 ### Prerequisites
 - **Rust** (stable) via [rustup](https://rustup.rs)
-- **Node 18+** and **pnpm**
-- Linux system libraries for Tauri:
-
-```bash
-sudo apt install -y libwebkit2gtk-4.1-dev librsvg2-dev libgtk-3-dev \
-  libxdo-dev libayatana-appindicator3-dev build-essential pkg-config
-```
+- **Node 22+** and **pnpm**
+- Linux: `sudo apt install -y build-essential pkg-config libdbus-1-dev` (add `rpm` to build `.rpm`)
 
 ### Run
 
 ```bash
 pnpm install
-pnpm tauri dev
+pnpm electron:native   # build the Rust backend (native Node module)
+pnpm electron:dev      # Vite on :1520 + Electron
 ```
 
 ### Build installers
 
 ```bash
-pnpm tauri build
+pnpm electron:build    # installers for the current OS → release/
 ```
 
-Bundles land under `src-tauri/target/release/bundle/` (`deb/`, `appimage/`, `rpm/`).
+`electron/build.cjs` builds the UI, the Rust module (universal on macOS), the
+KeePass sidecar, then packages with electron-builder. The Rust backend lives in
+`src-tauri/src` and is compiled unchanged through a small `tauri` shim crate
+(`native/tauri-shim`); the command router is generated from `commands.rs`.
 
 ---
 
@@ -210,8 +209,11 @@ Bundles land under `src-tauri/target/release/bundle/` (`deb/`, `appimage/`, `rpm
 
 - The keychain namespace is a stable internal string kept across renames so stored
   secrets are never orphaned.
-- On some Linux GPUs/drivers WebKitGTK's DMABUF renderer shows a black window; the
-  app disables it at startup (`WEBKIT_DISABLE_DMABUF_RENDERER`) so it renders everywhere.
+- **Why Electron (since 0.3.0):** up to 0.2.x Termez used the OS webview; on Linux that
+  is WebKitGTK, which scrolls the terminal (vim/less) visibly less smoothly than
+  Chromium. Installers are larger as a result (≈100 MB `.deb` vs ≈8 MB before).
+- **Upgrading from 0.2.x keeps everything:** same data folder and OS keychain; on
+  Linux the UI preferences (theme, font size…) are migrated on first launch.
 - VPN (OpenVPN) is intentionally **out of scope** — it needs root and changes
   system-wide routing; use a **jump host** or a **SOCKS tunnel** instead.
 

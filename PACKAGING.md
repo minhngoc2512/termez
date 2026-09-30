@@ -1,6 +1,6 @@
 # Packaging Termez for `apt`
 
-Tauri already emits a Debian package. To let users install and **auto-update**
+electron-builder emits the Debian package (`node electron/build.cjs --linux deb`). To let users install and **auto-update**
 via `apt`, publish those `.deb` files through a signed apt repository. The
 easiest zero-cost host is GitHub Pages on this repo.
 
@@ -29,8 +29,20 @@ GPG_KEY_ID=you@example.com scripts/build-apt-repo.sh
 This builds `Termez_<version>_amd64.deb` and assembles a signed *flat* apt repo
 in `./apt-repo/` (Packages index, Release/InRelease, and the public keyring).
 
-The version comes from `src-tauri/tauri.conf.json` (`version`) — bump it there
-(and in `package.json`) for each release so `apt upgrade` sees the new build.
+The version comes from `package.json` — bump it there **and** in
+`native/Cargo.toml` (+ `native/Cargo.lock`) for each release; `electron/build.cjs`
+refuses to build if they differ. Pre-releases (`0.3.0-beta.1`) become
+`0.3.0~beta.1` in the `.deb`, so dpkg orders them before `0.3.0`.
+
+### Release checklist
+
+1. Bump the version (above), commit, push a tag `vX.Y.Z` (or `vX.Y.Z-beta.N`).
+2. CI builds Linux / macOS (universal) / Windows, smoke-tests the packaged Linux
+   app, and attaches the installers to the GitHub Release (a tag with a suffix
+   becomes a *pre-release* and is never "latest").
+3. **Stable releases only — publish apt right after CI** (steps 2–3 here). The in-app
+   updater of apt installs reads the apt repo, older builds read GitHub
+   "latest"; if apt lags behind, users see an update they cannot install yet.
 
 ## 3. Publish to GitHub Pages
 
@@ -63,9 +75,8 @@ Updates arrive with a normal `sudo apt update && sudo apt upgrade`.
 
 ## Notes
 
-- The in-app **Check for updates** (Settings → About) reads GitHub Releases, so
-  also attach the `.deb` to a GitHub Release tagged `v<version>` for users who
-  prefer a manual download.
+- The in-app **Check for updates** reads the apt repo on apt installs and GitHub
+  Releases ("latest") otherwise; CI attaches every installer to the Release.
 - `dpkg -i Termez_<version>_amd64.deb` still works for a one-off install without
   the repo, but won't auto-update.
 - CI option: run `scripts/build-apt-repo.sh` in a GitHub Actions job (Ubuntu

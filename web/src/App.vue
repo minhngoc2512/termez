@@ -5,7 +5,7 @@ import logoUrl from "./assets/logo.svg"; // Vite sinh đường dẫn đúng v�
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.2.21";
+const VERSION = "v0.3.0";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
@@ -70,7 +70,7 @@ const features = [
             <span class="text-magenta">panes<span class="cursor align-middle"></span></span>
           </h1>
           <p class="mt-6 max-w-lg text-lg leading-relaxed text-muted">
-            Termez is a native SSH &amp; SFTP client for Linux, macOS and Windows. Split terminals
+            Termez is a fast SSH &amp; SFTP client for Linux, macOS and Windows. Split terminals
             into workspaces, keep every session alive as you switch, and manage keys, passwords
             and cloud storage in one window.
           </p>
@@ -81,7 +81,7 @@ const features = [
               Download
             </a>
           </div>
-          <p class="mt-4 font-mono text-xs text-muted">Open source · Built with Tauri + Rust</p>
+          <p class="mt-4 font-mono text-xs text-muted">Open source · Built with Electron + Rust</p>
         </div>
 
         <!-- Workspace mockup: two tiled panes + a status line (the signature) -->
@@ -201,7 +201,7 @@ eth0 <span class="text-magenta">167.172.74.61</span>
         <p class="mt-1.5 text-sm text-muted">Windows 10/11 (x64). Also available as an NSIS <b class="text-fg">setup .exe</b>.</p>
         <a :href="RELEASES" target="_blank" rel="noopener" class="mt-4 inline-block rounded-md bg-prompt px-5 py-2.5 font-medium text-ink hover:brightness-110">Download for Windows</a>
         <div class="mt-4 rounded-lg border border-line bg-ink p-3 text-xs text-muted">
-          <span class="text-amber">Note</span> — unsigned: SmartScreen may warn, click <b class="text-fg">More info → Run anyway</b>. Needs the WebView2 runtime (built into Windows 11).
+          <span class="text-amber">Note</span> — unsigned: SmartScreen may warn, click <b class="text-fg">More info → Run anyway</b>.
         </div>
       </div>
     </section>
