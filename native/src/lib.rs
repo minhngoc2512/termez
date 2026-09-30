@@ -135,6 +135,31 @@ pub fn command_count() -> u32 {
     dispatch::COMMAND_COUNT as u32
 }
 
+/// Đọc localStorage của bản Tauri trên Linux (WebKitGTK): file SQLite, bảng
+/// `ItemTable(key, value)` với value là chuỗi UTF-16LE. Trả JSON {khoá: giá trị}.
+/// Dùng một lần khi chuyển từ bản Tauri sang Electron để giữ tuỳ chọn giao diện.
+#[napi]
+pub async fn read_webkit_local_storage(path: String) -> napi::Result<String> {
+    use sqlx::sqlite::SqliteConnectOptions;
+    use sqlx::{ConnectOptions, Row};
+    let err = |e: sqlx::Error| napi::Error::from_reason(e.to_string());
+    let mut conn = SqliteConnectOptions::new()
+        .filename(&path)
+        .read_only(true)
+        .connect()
+        .await
+        .map_err(err)?;
+    let rows = sqlx::query("SELECT key, value FROM ItemTable").fetch_all(&mut conn).await.map_err(err)?;
+    let mut map = serde_json::Map::new();
+    for r in rows {
+        let key: String = r.try_get(0).map_err(err)?;
+        let raw: Vec<u8> = r.try_get(1).map_err(err)?;
+        let utf16: Vec<u16> = raw.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        map.insert(key, Value::String(String::from_utf16_lossy(&utf16)));
+    }
+    Ok(Value::Object(map).to_string())
+}
+
 mod dispatch {
     use serde::de::DeserializeOwned;
     use serde::Serialize;

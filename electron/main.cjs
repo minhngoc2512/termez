@@ -7,6 +7,7 @@
 //   - thay các plugin Tauri (cửa sổ, dialog, clipboard, mở link, cửa sổ mới) bằng API Electron;
 //   - chuyển sự kiện backend tới mọi cửa sổ, và output Channel tới ĐÚNG cửa sổ sở hữu.
 const { app, BrowserWindow, ipcMain, shell, clipboard, dialog } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const native = require("../native/termez_native.node");
@@ -25,6 +26,38 @@ function tauriDataDir() {
   return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), id);
 }
 const DATA_DIR = tauriDataDir();
+
+// ---------- Chuyển tuỳ chọn giao diện từ bản Tauri (Linux) ----------
+// Bản Tauri lưu tuỳ chọn (theme, cỡ chữ terminal, tự cập nhật…) trong localStorage
+// của WebKitGTK — Electron không đọc được. Lần đầu mở bản Electron: đọc file đó,
+// đưa cho preload điền vào localStorage (chỉ khoá còn trống) trước khi giao diện chạy.
+const PREFS_MARKER = path.join(DATA_DIR, ".electron-prefs-migrated");
+let pendingPrefs = null;
+
+async function loadTauriPrefs() {
+  if (process.platform !== "linux" || fs.existsSync(PREFS_MARKER)) return;
+  const file = path.join(DATA_DIR, "localstorage", "tauri_localhost_0.localstorage");
+  if (fs.existsSync(file)) {
+    try {
+      pendingPrefs = JSON.parse(await native.readWebkitLocalStorage(file));
+    } catch (err) {
+      console.warn("[prefs] không đọc được tuỳ chọn cũ:", err.message || err);
+    }
+  }
+  if (!pendingPrefs && app.isPackaged) fs.writeFileSync(PREFS_MARKER, "none\n"); // không có gì để chuyển
+}
+
+// Preload hỏi (đồng bộ) lúc cửa sổ đầu tiên nạp; chỉ trao một lần.
+ipcMain.on("tz:take-prefs", (e) => {
+  const prefs = pendingPrefs;
+  pendingPrefs = null;
+  if (prefs) {
+    console.log(`[prefs] chuyển ${Object.keys(prefs).length} tuỳ chọn từ bản Tauri`);
+    // Dev thì không đánh dấu, để chạy thử lại được; bản đóng gói chỉ chuyển một lần.
+    if (app.isPackaged) fs.writeFileSync(PREFS_MARKER, new Date().toISOString() + "\n");
+  }
+  e.returnValue = prefs;
+});
 const DEV_URL = process.env.TZ_DEV_URL; // vd http://localhost:1520 khi chạy dev
 
 // ---------- Sự kiện backend → mọi cửa sổ ----------
@@ -201,6 +234,7 @@ function createWindow({ url, title, width, height } = {}) {
 
 app.whenReady().then(async () => {
   await native.init(DATA_DIR, onBackendEvent, onBackendChannel);
+  await loadTauriPrefs();
   createWindow();
 });
 app.on("window-all-closed", () => app.quit());
