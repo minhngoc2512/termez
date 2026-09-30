@@ -8,6 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { SearchAddon, ISearchOptions } from "@xterm/addon-search";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { api, base64ToBytes, SshClosedPayload, SshDataPayload, SshLatencyPayload } from "./ipc";
@@ -30,6 +31,8 @@ interface Entry {
   connUnlisteners: UnlistenFn[]; // listener theo từng lần kết nối (clear khi reconnect)
   hostId: string;
   badge: HTMLDivElement | null; // hiển thị độ trễ ping ở góc pane
+  search: SearchAddon;
+  searchBar: HTMLDivElement | null; // ô tìm kiếm (Ctrl+Shift+F), tạo lúc mở lần đầu
   // "Chờ shell sẵn sàng": đệm phím tới khi output init của shell im một nhịp.
   ready: boolean;
   pending: string[];
@@ -118,6 +121,8 @@ export function acquire(
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  const search = new SearchAddon();
+  term.loadAddon(search);
   // Tính đúng bề rộng ký tự rộng/emoji → bớt lệch render (kể cả tiếng Việt).
   try {
     term.loadAddon(new Unicode11Addon());
@@ -134,7 +139,7 @@ export function acquire(
 
   const entry: Entry = {
     el, term, fit, ro: null, opened: false, handlersSet: false,
-    sessionId: null, disposed: false, connUnlisteners: [], hostId, badge,
+    sessionId: null, disposed: false, connUnlisteners: [], hostId, badge, search, searchBar: null,
     ready: true, pending: [], quietTimer: null, maxTimer: null,
   };
   pool.set(panelId, entry);
@@ -257,6 +262,105 @@ function pendingLatency(entry: Entry) {
   b.style.opacity = "0.6";
 }
 
+// ----- Tìm trong buffer (Ctrl+Shift+F) -----
+// Màu decoration phải ở dạng #RRGGBB.
+const SEARCH_DECOR = {
+  matchBackground: "#6b5a1e",
+  matchOverviewRuler: "#fbbf24",
+  activeMatchBackground: "#d97706",
+  activeMatchColorOverviewRuler: "#f59e0b",
+};
+
+function searchOpts(entry: Entry, incremental: boolean): ISearchOptions {
+  const cs = entry.searchBar?.dataset.case === "1";
+  return { caseSensitive: cs, incremental, decorations: SEARCH_DECOR };
+}
+
+function closeSearch(entry: Entry) {
+  if (!entry.searchBar) return;
+  entry.searchBar.style.display = "none";
+  entry.search.clearDecorations();
+  entry.term.clearSelection();
+  entry.term.focus();
+}
+
+function buildSearchBar(entry: Entry): HTMLDivElement {
+  const bar = document.createElement("div");
+  bar.className =
+    "absolute right-2.5 top-8 z-20 flex items-center gap-1 rounded-lg border border-border bg-popover px-1.5 py-1 text-popover-foreground shadow-xl";
+  bar.style.display = "none";
+
+  const input = document.createElement("input");
+  input.placeholder = "Find…";
+  input.spellcheck = false;
+  input.className = "w-44 bg-transparent px-1 font-mono text-xs outline-none placeholder:text-muted-foreground";
+
+  const count = document.createElement("span");
+  count.className = "min-w-10 text-right font-mono text-[11px] tabular-nums text-muted-foreground";
+
+  const btn = (label: string, title: string) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.className =
+      "flex h-6 min-w-6 items-center justify-center rounded px-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground";
+    return b;
+  };
+  const caseBtn = btn("Aa", "Match case");
+  const prevBtn = btn("↑", "Previous (Shift+Enter)");
+  const nextBtn = btn("↓", "Next (Enter)");
+  const closeBtn = btn("✕", "Close (Esc)");
+
+  const next = (incremental = false) => {
+    if (input.value) entry.search.findNext(input.value, searchOpts(entry, incremental));
+    else { entry.search.clearDecorations(); count.textContent = ""; }
+  };
+  const prev = () => {
+    if (input.value) entry.search.findPrevious(input.value, searchOpts(entry, false));
+  };
+
+  input.addEventListener("input", () => next(true));
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // không để phím lọt xuống terminal
+    if (e.key === "Enter") { e.preventDefault(); if (e.shiftKey) prev(); else next(); }
+    else if (e.key === "Escape") { e.preventDefault(); closeSearch(entry); }
+  });
+  caseBtn.addEventListener("click", () => {
+    const on = bar.dataset.case !== "1";
+    bar.dataset.case = on ? "1" : "0";
+    caseBtn.classList.toggle("text-primary", on);
+    next(true);
+    input.focus();
+  });
+  prevBtn.addEventListener("click", () => { prev(); input.focus(); });
+  nextBtn.addEventListener("click", () => { next(); input.focus(); });
+  closeBtn.addEventListener("click", () => closeSearch(entry));
+
+  entry.search.onDidChangeResults(({ resultIndex, resultCount }) => {
+    if (!input.value) { count.textContent = ""; return; }
+    count.textContent = resultCount === 0 ? "0/0" : resultIndex < 0 ? `${resultCount}+` : `${resultIndex + 1}/${resultCount}`;
+    count.classList.toggle("text-destructive", resultCount === 0);
+  });
+
+  bar.append(input, count, caseBtn, prevBtn, nextBtn, closeBtn);
+  entry.el.appendChild(bar);
+  return bar;
+}
+
+function openSearch(entry: Entry) {
+  if (!entry.searchBar) entry.searchBar = buildSearchBar(entry);
+  const bar = entry.searchBar;
+  bar.style.display = "flex";
+  const input = bar.querySelector("input")!;
+  // Đang chọn một đoạn (1 dòng) → dùng làm từ khoá.
+  const sel = entry.term.getSelection();
+  if (sel && !sel.includes("\n")) input.value = sel;
+  input.focus();
+  input.select();
+  if (input.value) entry.search.findNext(input.value, searchOpts(entry, true));
+}
+
 function safeFit(entry: Entry) {
   try {
     entry.fit.fit();
@@ -272,6 +376,12 @@ function setupHandlers(entry: Entry) {
   entry.handlersSet = true;
   const term = entry.term;
   term.attachCustomKeyEventHandler((e) => {
+    // Ctrl+Shift+F: tìm trong buffer (Ctrl+F để lại cho vim/less/readline).
+    if (e.type === "keydown" && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      openSearch(entry);
+      return false;
+    }
     if (e.type === "keydown" && e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") {
       const sel = term.getSelection();
       if (sel) {
