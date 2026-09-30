@@ -1,0 +1,11 @@
+[package]
+name = "termez-tauri-shim"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Crate giả mang tên `tauri`: chỉ cài đúng phần API Tauri mà backend Termez dùng, để backend biên dịch nguyên văn trong Electron."
+
+[dependencies]
+serde = "1"
+serde_json = "1"
+termez-tauri-shim-macros = { path = "../tauri-shim-macros" }

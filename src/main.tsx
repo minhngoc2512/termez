@@ -1,4 +1,4 @@
-import "./lib/electronShim"; // SPIKE: giả lập Tauri khi chạy trong Electron (phải nạp đầu tiên)
+import "./lib/electronShim"; // Electron: giả lập Tauri (phải nạp đầu tiên; trong Tauri thì không làm gì)
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
