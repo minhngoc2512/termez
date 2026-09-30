@@ -34,9 +34,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Linux — công cụ đóng gói rpm
+      - name: Linux — thư viện build + công cụ đóng gói rpm
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        # libdbus-1-dev: keyring (Secret Service qua D-Bus) cần lúc build module native.
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config rpm
 
       - uses: dtolnay/rust-toolchain@stable
         with:
