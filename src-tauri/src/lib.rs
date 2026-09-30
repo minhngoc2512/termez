@@ -6,6 +6,7 @@ mod db;
 mod keychain;
 mod keys;
 mod monitor;
+mod render;
 mod s3;
 mod scan;
 mod sftp;
@@ -21,14 +22,10 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Màn hình đen trên một số máy Linux là do bộ render DMABUF của WebKitGTK
-    // không tương thích GPU/driver. Tắt nó để WebView vẽ được ở mọi máy.
-    // Phải set TRƯỚC khi WebView khởi tạo. Tôn trọng nếu user đã tự cấu hình.
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        }
-    }
+    // không tương thích GPU/driver → mặc định tắt. Người dùng có thể bật lại trong
+    // Settings (chế độ thử + xác nhận, xem render.rs). Phải chạy TRƯỚC khi WebView
+    // khởi tạo; tôn trọng nếu user đã tự đặt biến môi trường.
+    render::apply_at_startup();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -112,6 +109,9 @@ pub fn run() {
             commands::update_apply,
             commands::release_notes,
             commands::app_relaunch,
+            render::render_status,
+            render::render_set_dmabuf,
+            render::render_confirm_dmabuf,
             commands::scan_hosts,
             commands::scan_ports,
             commands::scan_lan,
