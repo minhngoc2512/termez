@@ -37,7 +37,7 @@ jobs:
       - name: Linux — thư viện build + công cụ đóng gói rpm
         if: runner.os == 'Linux'
         # libdbus-1-dev: keyring (Secret Service qua D-Bus) cần lúc build module native.
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config rpm
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config rpm xvfb
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -63,6 +63,12 @@ jobs:
 
       - name: Build bộ cài
         run: node electron/build.cjs
+
+      # Chạy bản đã đóng gói trong màn hình ảo, kiểm tra giao diện thật sự hiện ra
+      # (chặn lỗi "mở lên màn hình đen" trước khi tới tay người dùng).
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node electron/smoke-test.cjs
 
       - name: Đính vào GitHub Release
         if: env.RELEASE_TAG != ''

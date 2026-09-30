@@ -34,6 +34,11 @@ console.log(`==> Termez ${pkg.version} (${process.platform})`);
 
 // ---- 2. Giao diện ----
 run("pnpm", ["build"]);
+// Electron nạp qua file:// → asset phải là đường dẫn tương đối (vite base "./").
+if (/(src|href)="\/assets\//.test(fs.readFileSync(path.join(ROOT, "dist", "index.html"), "utf8"))) {
+  console.error('!! dist/index.html dùng đường dẫn tuyệt đối "/assets/…" — bản đóng gói sẽ màn hình đen. Cần base: "./" trong vite.config.ts.');
+  process.exit(1);
+}
 
 // ---- 3 + 4. Module native + sidecar ----
 function cargoBuild(manifest, target) {

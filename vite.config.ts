@@ -8,6 +8,9 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
+  // Đường dẫn asset TƯƠNG ĐỐI: bản Electron nạp index.html qua file:// — "/assets/…"
+  // sẽ trỏ về gốc ổ đĩa và trang trắng (màn hình đen). Tauri cũng chạy được với "./".
+  base: "./",
   plugins: [react(), tailwindcss()],
 
   resolve: {
