@@ -1,0 +1,74 @@
+# Đóng gói Termez (Electron). Chạy qua `node electron/build.cjs` (script đó dựng
+# thư mục staging .electron-app rồi gọi electron-builder với file này).
+appId: com.termez.app
+productName: Termez
+copyright: Termez
+
+directories:
+  app: .electron-app # chỉ main/preload + giao diện đã build + module native
+  output: release
+  buildResources: electron/resources
+
+asar: true
+asarUnpack:
+  - native/** # module .node không nạp được từ trong asar
+
+# Giao diện đã được Vite đóng gói vào dist/ → lúc chạy KHÔNG cần node_modules.
+# Không có dòng này, electron-builder lùi ra thư mục gốc và gom hết node_modules
+# của dự án (react, radix…) vào asar (+~55 MB vô ích).
+files:
+  - "**/*"
+  - "!**/node_modules{,/**}"
+npmRebuild: false
+
+# Sidecar import KeePass đặt CẠNH file chạy (backend tìm ở thư mục của current_exe).
+extraFiles:
+  - from: .electron-extra
+    to: .
+
+linux:
+  target: [deb, rpm, AppImage]
+  executableName: termez
+  icon: src-tauri/icons/icon.png
+  category: Development
+  synopsis: SSH/SFTP manager
+  description: Termez — SSH/SFTP manager
+  maintainer: Termez <termez@users.noreply.github.com>
+  desktop:
+    entry:
+      StartupWMClass: Termez
+
+# Tên gói deb/rpm vẫn là `termez` → `apt upgrade` nâng thẳng từ bản Tauri lên.
+deb:
+  packageName: termez
+  artifactName: Termez_${version}_${arch}.${ext}
+rpm:
+  packageName: termez
+  artifactName: Termez-${version}-1.${arch}.${ext}
+appImage:
+  artifactName: Termez_${version}_amd64.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch: universal
+  icon: src-tauri/icons/icon.icns
+  category: public.app-category.developer-tools
+  identity: null # chưa ký (giống bản Tauri)
+  # Module native + sidecar đã được lipo thành universal sẵn trong cả hai bản build.
+  x64ArchFiles: "{**/*.node,**/kdbx-import}"
+  extraFiles:
+    - from: .electron-extra
+      to: MacOS
+dmg:
+  artifactName: Termez_${version}_universal.${ext}
+
+win:
+  target: [nsis, msi]
+  icon: src-tauri/icons/icon.ico
+nsis:
+  artifactName: Termez_${version}_x64-setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+msi:
+  artifactName: Termez_${version}_x64_en-US.${ext}

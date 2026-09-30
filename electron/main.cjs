@@ -11,11 +11,20 @@ const path = require("node:path");
 const os = require("node:os");
 const native = require("../native/termez_native.node");
 
-// Dùng CHUNG dữ liệu với bản Tauri (termez.db, sync-base…); secret vẫn ở keychain.
-const DATA_DIR = path.join(
-  process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-  "com.termez.app"
-);
+// Dùng ĐÚNG thư mục dữ liệu của bản Tauri (termez.db, sync-base…) để người dùng
+// nâng cấp từ Tauri lên không mất gì. Tauri: app_data_dir = <data dir>/<identifier>.
+// Secret vẫn ở keychain hệ điều hành (cùng service name) nên cũng giữ nguyên.
+function tauriDataDir() {
+  const id = "com.termez.app";
+  if (process.platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", id);
+  }
+  if (process.platform === "win32") {
+    return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), id);
+  }
+  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), id);
+}
+const DATA_DIR = tauriDataDir();
 const DEV_URL = process.env.TZ_DEV_URL; // vd http://localhost:1520 khi chạy dev
 
 // ---------- Sự kiện backend → mọi cửa sổ ----------

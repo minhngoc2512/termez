@@ -2,3 +2,8 @@ minimumReleaseAgeExclude:
   - dockview-core@8.3.1
   - dockview-react@8.3.1
   - dockview@8.3.1
+# Script cài đặt của dependency: chỉ Electron cần (tải binary Chromium).
+# electron-winstaller (Squirrel) không dùng — đóng gói Windows bằng NSIS/MSI.
+allowBuilds:
+  electron: true
+  electron-winstaller: false

@@ -47,9 +47,10 @@ fi
 
 echo "==> Building release bundle (.deb)…"
 cd "$ROOT"
-pnpm tauri build --bundles deb
+# Bản Electron: build.cjs dựng giao diện + module native + sidecar rồi đóng gói.
+node electron/build.cjs --linux deb
 
-DEB="$(ls -t "$ROOT"/src-tauri/target/release/bundle/deb/*.deb | head -n1)"
+DEB="$(ls -t "$ROOT"/release/*.deb | head -n1)"
 [[ -f "$DEB" ]] || { echo "!! No .deb produced." >&2; exit 1; }
 echo "==> Built: $DEB"
 

@@ -36,7 +36,7 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**", "**/native/**", "**/electron/**"],
+      ignored: ["**/src-tauri/**", "**/native/**", "**/electron/**", "**/.electron-app/**", "**/.electron-extra/**", "**/release/**"],
     },
   },
 }));

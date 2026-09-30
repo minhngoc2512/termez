@@ -33,3 +33,8 @@ src-tauri/sidecar/kdbx-import/target/
 # Electron spike: build output của module napi
 native/target/
 native/*.node
+
+# Electron: staging + output đóng gói
+.electron-app/
+.electron-extra/
+release/
