@@ -4,6 +4,11 @@
 // Chỉ khi panel bị ĐÓNG hẳn (release) mới ngắt phiên và dispose.
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { api, base64ToBytes, SshClosedPayload, SshDataPayload, SshLatencyPayload } from "./ipc";
 import { confirmDialog } from "./dialogs";
@@ -108,10 +113,24 @@ export function acquire(
     fontFamily: '"JetBrains Mono", "Cascadia Code", "DejaVu Sans Mono", "Ubuntu Mono", monospace',
     fontSize: fontSize || s.termFontSize || 13.5,
     cursorBlink: true,
+    allowProposedApi: true, // cần cho unicode11
     theme: resolveTheme(themeName || s.termTheme),
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  // Tính đúng bề rộng ký tự rộng/emoji → bớt lệch render (kể cả tiếng Việt).
+  try {
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
+  } catch {
+    /* bỏ qua nếu không khả dụng */
+  }
+  // OSC 52: vim/tmux trên server copy được vào clipboard máy này.
+  try {
+    term.loadAddon(new ClipboardAddon());
+  } catch {
+    /* ignore */
+  }
 
   const entry: Entry = {
     el, term, fit, ro: null, opened: false, handlersSet: false,
@@ -131,6 +150,26 @@ export function attach(panelId: string, mount: HTMLElement) {
   if (!entry.opened) {
     entry.term.open(entry.el);
     entry.opened = true;
+    // WebGL renderer: tránh "bóng ma" của DOM renderer khi vim/less scroll ở
+    // alternate screen (rõ trên WebKitGTK). Nếu WebGL không khởi tạo được thì
+    // bỏ qua, xterm tự dùng DOM renderer như cũ (không làm tệ hơn).
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose()); // mất GPU context → về DOM renderer
+      entry.term.loadAddon(webgl);
+    } catch {
+      /* WebGL không khả dụng → giữ DOM renderer */
+    }
+    // Click URL trong output → mở bằng trình duyệt hệ điều hành (Tauri opener).
+    try {
+      entry.term.loadAddon(
+        new WebLinksAddon((_e, uri) => {
+          openUrl(uri).catch(() => {});
+        })
+      );
+    } catch {
+      /* ignore */
+    }
     entry.ro = new ResizeObserver(() => {
       try {
         entry.fit.fit();
