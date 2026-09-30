@@ -321,10 +321,6 @@ export const api = {
   updateApply: () => invoke<string>("update_apply"),
   releaseNotes: (tag: string) => invoke<string>("release_notes", { tag }),
   appRelaunch: () => invoke<void>("app_relaunch"),
-  renderStatus: () =>
-    invoke<{ supported: boolean; dmabuf: boolean; trial: boolean; env_forced: boolean }>("render_status"),
-  renderSetDmabuf: (enabled: boolean) => invoke<void>("render_set_dmabuf", { enabled }),
-  renderConfirmDmabuf: () => invoke<void>("render_confirm_dmabuf"),
 
   scanHosts: (cidr: string, port: number) => invoke<string[]>("scan_hosts", { cidr, port }),
   scanPorts: (target: string, ports: number[]) => invoke<number[]>("scan_ports", { target, ports }),

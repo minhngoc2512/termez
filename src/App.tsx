@@ -33,7 +33,6 @@ import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { UpdateManager } from "./components/UpdateManager";
-import { GpuTrialGuard } from "./components/GpuTrialGuard";
 import { HostPicker } from "./components/HostPicker";
 import { ConnectStatus } from "./components/ConnectStatus";
 import type { ConnStatus } from "./lib/terminalPool";
@@ -635,7 +634,6 @@ export default function App() {
       <SyncConflictDialog />
       <DialogHost />
       <UpdateManager />
-      <GpuTrialGuard />
       <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
       <ConnectStatus status={conn} onRetry={retryConn} onExit={exitConn} />
     </div>

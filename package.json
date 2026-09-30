@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
     "electron:setup": "node node_modules/electron/install.js",
     "electron:native": "cd native && cargo build --release && cp target/release/libtermez_native.so termez_native.node.tmp && mv termez_native.node.tmp termez_native.node",
     "electron:dev": "node electron/dev.cjs",
@@ -48,7 +47,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",

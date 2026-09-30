@@ -9,7 +9,7 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig(() => ({
   // Đường dẫn asset TƯƠNG ĐỐI: bản Electron nạp index.html qua file:// — "/assets/…"
-  // sẽ trỏ về gốc ổ đĩa và trang trắng (màn hình đen). Tauri cũng chạy được với "./".
+  // sẽ trỏ về gốc ổ đĩa và trang trắng (màn hình đen).
   base: "./",
   plugins: [react(), tailwindcss()],
 
@@ -25,7 +25,6 @@ export default defineConfig(() => ({
     include: ["react", "react-dom", "react/jsx-runtime", "dockview-react", "dockview"],
   },
 
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   clearScreen: false,
   server: {
     port: 1420,

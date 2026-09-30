@@ -202,6 +202,8 @@ pnpm electron:build    # installers for the current OS → release/
 KeePass sidecar, then packages with electron-builder. The Rust backend lives in
 `src-tauri/src` and is compiled unchanged through a small `tauri` shim crate
 (`native/tauri-shim`); the command router is generated from `commands.rs`.
+(The directory name is historical — there is no Tauri runtime any more.) Backend
+unit tests run standalone: `cd src-tauri && cargo test`.
 
 ---
 

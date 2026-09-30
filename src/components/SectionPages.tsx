@@ -334,60 +334,7 @@ function TerminalCard() {
           </div>
         </div>
       </label>
-
-      <GpuAccelRow />
     </div>
-  );
-}
-
-/** Linux: bật lại DMABUF của WebKitGTK để vẽ mượt hơn (chế độ thử + xác nhận). */
-function GpuAccelRow() {
-  const [st, setSt] = useState<{ supported: boolean; dmabuf: boolean; trial: boolean; env_forced: boolean } | null>(null);
-  const [want, setWant] = useState<boolean | null>(null); // lựa chọn đã lưu, chờ khởi động lại
-  useEffect(() => {
-    api.renderStatus().then(setSt).catch(() => {});
-  }, []);
-  if (!st?.supported) return null;
-  const current = st.dmabuf && !st.trial;
-  const pending = want !== null && want !== current;
-
-  async function toggle(enabled: boolean) {
-    try {
-      await api.renderSetDmabuf(enabled);
-    } catch (e) {
-      alertDialog({ title: "Lỗi", message: String(e) });
-      return;
-    }
-    setWant(enabled);
-    const restart = await confirmDialog({
-      title: enabled ? "Bật tăng tốc GPU" : "Tắt tăng tốc GPU",
-      message: enabled
-        ? "Cần khởi động lại để áp dụng. Lần mở tới app sẽ chạy thử và hỏi bạn màn hình có hiển thị bình thường không.\n\nNếu màn hình bị đen: chỉ cần đóng rồi mở lại app, nó sẽ tự quay về chế độ an toàn."
-        : "Cần khởi động lại để áp dụng.",
-      confirmText: "Khởi động lại",
-    });
-    if (restart) api.appRelaunch().catch(() => {});
-  }
-
-  return (
-    <label className="mt-3 flex cursor-pointer items-center gap-3 border-t border-border pt-3">
-      <input
-        type="checkbox"
-        checked={want ?? current}
-        disabled={st.env_forced}
-        onChange={(e) => toggle(e.target.checked)}
-        className="size-4 accent-[var(--primary)]"
-      />
-      <div className="flex-1">
-        <div className="text-sm">GPU acceleration (DMABUF)</div>
-        <div className="text-xs text-muted-foreground">
-          {st.env_forced
-            ? "Đang bị biến môi trường WEBKIT_DISABLE_DMABUF_RENDERER quyết định."
-            : "Vẽ terminal mượt hơn trên Linux. Tắt mặc định vì một số GPU/driver bị màn hình đen — bật sẽ chạy thử và hỏi xác nhận trước khi lưu."}
-        </div>
-        {pending && <div className="mt-1 text-xs text-primary">Sẽ áp dụng khi khởi động lại app.</div>}
-      </div>
-    </label>
   );
 }
 

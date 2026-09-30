@@ -173,16 +173,8 @@ async function handlePlugin(cmd, args, win) {
   return undefined;
 }
 
-// Lệnh chỉ có nghĩa với bản Tauri (DMABUF của WebKitGTK) — Electron không cần.
-const ELECTRON_LOCAL = {
-  render_status: () => ({ supported: false, dmabuf: false, trial: false, env_forced: false }),
-  render_set_dmabuf: () => null,
-  render_confirm_dmabuf: () => null,
-};
-
 async function handle(cmd, args, win, wc) {
   if (cmd.startsWith("plugin:")) return handlePlugin(cmd, args, win);
-  if (cmd in ELECTRON_LOCAL) return ELECTRON_LOCAL[cmd](args);
   const mapped = mapChannels(args ?? {}, wc);
   return JSON.parse(await native.invoke(cmd, JSON.stringify(mapped)));
 }

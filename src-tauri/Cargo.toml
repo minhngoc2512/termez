@@ -1,25 +1,16 @@
 [package]
-name = "termez"
-version = "0.2.21"
-description = "Termez — SSH/SFTP manager"
-authors = ["you"]
+name = "termez-core"
+version = "0.0.0" # KHÔNG phải version app — xem native/Cargo.toml
+description = "Backend Rust của Termez (test/check độc lập; app thật build qua native/)"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+publish = false
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "termez_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
-
-[build-dependencies]
-tauri-build = { version = "2", features = [] }
+name = "termez_core"
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
+# Crate giả mang tên `tauri` (như native/) — backend dùng `tauri::…` cho sự kiện/Channel.
+tauri = { package = "termez-tauri-shim", path = "../native/tauri-shim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -47,8 +38,6 @@ bytes = "1"
 walkdir = "2"
 totp-rs = { version = "6.0.0", default-features = false, features = ["std", "gen_secret", "otpauth", "migration"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-tauri-plugin-dialog = "2.7.3"
-tauri-plugin-clipboard-manager = "2.3.3"
 # Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì
 # crate `keepass` 0.14 dùng thế hệ RustCrypto cũ, xung đột với russh 0.63.
 
@@ -64,11 +53,3 @@ keyring = { version = "3", features = ["apple-native"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
 
-
-# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build sidecar `kdbx-import` và đặt vào src-tauri/binaries/ theo target triple
-# mà Tauri externalBin yêu cầu (kdbx-import-<triple>).
-# Chạy trước `tauri dev` / `tauri build` khi sidecar thay đổi.
+# (kdbx-import-<triple>) — bản dev tìm ở đây (native/binaries trỏ tới).
+# Bản đóng gói do electron/build.cjs tự build; script này chỉ cho dev.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
