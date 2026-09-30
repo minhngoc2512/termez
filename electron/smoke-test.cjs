@@ -19,10 +19,18 @@ const app = spawn(BIN, [`--remote-debugging-port=${PORT}`, "--no-sandbox"], {
   stdio: ["ignore", "inherit", "inherit"],
 });
 
+let done = false;
 function finish(code, msg) {
+  if (done) return; // chỉ kết thúc MỘT lần (tắt app sẽ bắn thêm sự kiện "exit")
+  done = true;
   console.log(msg);
+  app.removeAllListeners("exit");
   app.kill();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true }); // app có thể còn đang ghi khi bị tắt
+  } catch {
+    /* dọn không được thì thôi — thư mục tạm */
+  }
   process.exit(code);
 }
 
