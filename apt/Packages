@@ -1,0 +1,20 @@
+Package: termez
+Version: 0.3.0
+Architecture: amd64
+Maintainer: Termez <termez@users.noreply.github.com>
+Installed-Size: 297209
+Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libdbus-1-3
+Recommends: libappindicator3-1
+Filename: ./Termez_0.3.0_amd64.deb
+Size: 102437960
+MD5sum: 02278dbf4ba5eaa597e6acb9d20a97c4
+SHA1: 04e51b2ed04040dfbd73d04c2945c3c9d8789e44
+SHA256: d0b2d0a42d3af0d4c0c1be74a38d66d5593fc7c8920930bbd348b3b63c388065
+Section: default
+Priority: optional
+Homepage: https://minhngoc2512.github.io/termez/
+Description: SSH/SFTP manager
+  Termez — SSH/SFTP manager
+License: UNLICENSED
+Vendor: Termez <termez@users.noreply.github.com>
+
