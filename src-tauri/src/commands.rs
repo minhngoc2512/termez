@@ -1098,20 +1098,73 @@ pub async fn check_update() -> R<UpdateInfo> {
 
 /// So sánh semver rút gọn: `a` mới hơn `b`?
 fn version_gt(a: &str, b: &str) -> bool {
-    fn parts(v: &str) -> Vec<u64> {
-        v.split(['.', '-'])
-            .filter_map(|p| p.parse::<u64>().ok())
-            .collect()
+    // "0.3.0-beta.1" (semver) / "0.3.0~beta.1" (deb): phần sau '-'/'~' là pre-release,
+    // THẤP HƠN bản chính thức cùng số (0.3.0-beta.1 < 0.3.0).
+    fn split(v: &str) -> (Vec<u64>, Option<&str>) {
+        let v = v.trim().trim_start_matches('v');
+        let (core, pre) = match v.find(['-', '~']) {
+            Some(i) => (&v[..i], Some(&v[i + 1..])),
+            None => (v, None),
+        };
+        (core.split('.').filter_map(|p| p.parse().ok()).collect(), pre)
     }
-    let (pa, pb) = (parts(a), parts(b));
-    for i in 0..pa.len().max(pb.len()) {
-        let x = pa.get(i).copied().unwrap_or(0);
-        let y = pb.get(i).copied().unwrap_or(0);
+    // So pre-release theo từng đoạn: số so theo số, chữ so theo chữ (beta.2 < beta.10).
+    fn pre_gt(a: &str, b: &str) -> bool {
+        let (xa, xb): (Vec<&str>, Vec<&str>) = (a.split('.').collect(), b.split('.').collect());
+        for i in 0..xa.len().max(xb.len()) {
+            match (xa.get(i), xb.get(i)) {
+                (Some(x), Some(y)) if x != y => {
+                    return match (x.parse::<u64>(), y.parse::<u64>()) {
+                        (Ok(p), Ok(q)) => p > q,
+                        _ => x > y,
+                    };
+                }
+                (Some(_), None) => return true,
+                (None, Some(_)) => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+    let ((ca, pa), (cb, pb)) = (split(a), split(b));
+    for i in 0..ca.len().max(cb.len()) {
+        let x = ca.get(i).copied().unwrap_or(0);
+        let y = cb.get(i).copied().unwrap_or(0);
         if x != y {
             return x > y;
         }
     }
-    false
+    match (pa, pb) {
+        (None, Some(_)) => true, // bản chính thức > pre-release
+        (Some(x), Some(y)) => pre_gt(x, y),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_gt;
+
+    #[test]
+    fn release_ordering() {
+        assert!(version_gt("0.3.0", "0.2.21"));
+        assert!(version_gt("0.2.21", "0.2.9"));
+        assert!(!version_gt("0.2.21", "0.2.21"));
+        assert!(!version_gt("0.2.9", "0.2.21"));
+        assert!(version_gt("v0.3.0", "0.2.21"));
+    }
+
+    #[test]
+    fn prerelease_ordering() {
+        assert!(version_gt("0.3.0", "0.3.0-beta.1")); // lên bản chính thức từ beta
+        assert!(!version_gt("0.3.0-beta.1", "0.3.0"));
+        assert!(version_gt("0.3.0-beta.1", "0.2.21"));
+        assert!(version_gt("0.3.0-beta.2", "0.3.0-beta.1"));
+        assert!(version_gt("0.3.0-beta.10", "0.3.0-beta.2"));
+        assert!(version_gt("0.3.0-rc.1", "0.3.0-beta.9"));
+        assert!(version_gt("0.3.0", "0.3.0~beta.1")); // version kiểu deb (apt repo)
+        assert!(!version_gt("0.3.0-beta.1", "0.3.0-beta.1"));
+    }
 }
 
 /// Cập nhật gói `termez` qua apt. Dùng `pkexec` để polkit hỏi mật khẩu (app

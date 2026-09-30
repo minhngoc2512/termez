@@ -70,6 +70,10 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: Termez ${{ env.RELEASE_TAG }}
+          # Tag có hậu tố (vX.Y.Z-beta.N, -rc.N…) → pre-release, KHÔNG thành bản "latest"
+          # (trình cập nhật trong app chỉ xem releases/latest nên không nhắc người dùng).
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          make_latest: ${{ !contains(env.RELEASE_TAG, '-') }}
           fail_on_unmatched_files: false
           files: |
             release/*.deb

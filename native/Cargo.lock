@@ -3304,7 +3304,7 @@ dependencies = [
 
 [[package]]
 name = "termez-native"
-version = "0.2.21"
+version = "0.3.0-beta.1"
 dependencies = [
  "anyhow",
  "argon2",
