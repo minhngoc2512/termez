@@ -29,3 +29,7 @@ src-tauri/sidecar/kdbx-import/target/
 
 # apt repo build output (published to gh-pages, not source)
 /apt-repo/
+
+# Electron spike: build output của module napi
+native/target/
+native/*.node
