@@ -489,15 +489,6 @@ export default function App() {
     );
   }
 
-  if (locked) {
-    return (
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        <TitleBar />
-        <LockScreen onUnlock={() => setLocked(false)} />
-      </div>
-    );
-  }
-
   // Tên hiển thị của từng task: 1 pane → tên host; nhiều pane → "Workspace N".
   let wsNum = 0;
   const taskDisplay = tasks.map((t) => {
@@ -521,121 +512,127 @@ export default function App() {
     return { id: t.id, name, isWs, hostId };
   });
 
+  // Khi khóa: KHÔNG gỡ giao diện chính (gỡ DockviewReact = mất layout task đang mở,
+  // pane/trang reset về Home, phiên SSH mồ côi chạy ngầm). Giữ nguyên, đặt `inert`
+  // (không focus/gõ/click được) và phủ LockScreen lên trên.
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <TitleBar
-        onToggleNav={() => setShowHome((v) => !v)}
-        onLock={lockEnabled ? () => setLocked(true) : undefined}
-      />
-      <div className="flex min-h-0 flex-1">
-        {showHome && (
-          <FeatureNav
-            section={section}
-            onSelect={selectSection}
-            onSync={() => setSyncOpen(true)}
-            syncConfigured={syncConfigured}
-            sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
-            activeSession={activeTask}
-            onOpenSession={switchTask}
-            onCloseSession={closeTask}
-          />
-        )}
+    <>
+      <div inert={locked} className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <TitleBar
+          onToggleNav={() => setShowHome((v) => !v)}
+          onLock={lockEnabled ? () => setLocked(true) : undefined}
+        />
+        <div className="flex min-h-0 flex-1">
+          {showHome && (
+            <FeatureNav
+              section={section}
+              onSelect={selectSection}
+              onSync={() => setSyncOpen(true)}
+              syncConfigured={syncConfigured}
+              sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
+              activeSession={activeTask}
+              onOpenSession={switchTask}
+              onCloseSession={closeTask}
+            />
+          )}
 
-        <main className="relative flex min-w-0 flex-1 flex-col">
-          {/* Terminal workspace (dockview) — luôn mounted để giữ phiên sống */}
-          <div className="absolute inset-0 flex flex-col">
-            <div className="flex items-center gap-2 border-b border-border bg-card px-2.5 py-1.5">
-              <Button variant="outline" size="sm" onClick={() => setShowHome(true)} title="Back to menu">
-                <Home className="size-4" /> Menu
-              </Button>
-              <div className="mx-1 h-5 w-px bg-border" />
-              <Button
-                variant={broadcast ? "destructive" : "outline"}
-                size="sm"
-                onClick={toggleBroadcast}
-                title="Type once, send to ALL open panes"
-              >
-                <Radio className="size-4" />
-                Broadcast {broadcast ? "ON" : "OFF"}
-              </Button>
-              <Button variant="outline" size="sm" onClick={splitActive} title="Open another shell of the active server">
-                <Columns2 className="size-4" /> Split
-              </Button>
-              <Button variant="outline" size="sm" onClick={openSftp} title="Open SFTP file browser">
-                <FolderOpen className="size-4" /> SFTP
-              </Button>
-              <div className="ml-auto">
-                <HostSearch onOpen={openHost} />
+          <main className="relative flex min-w-0 flex-1 flex-col">
+            {/* Terminal workspace (dockview) — luôn mounted để giữ phiên sống */}
+            <div className="absolute inset-0 flex flex-col">
+              <div className="flex items-center gap-2 border-b border-border bg-card px-2.5 py-1.5">
+                <Button variant="outline" size="sm" onClick={() => setShowHome(true)} title="Back to menu">
+                  <Home className="size-4" /> Menu
+                </Button>
+                <div className="mx-1 h-5 w-px bg-border" />
+                <Button
+                  variant={broadcast ? "destructive" : "outline"}
+                  size="sm"
+                  onClick={toggleBroadcast}
+                  title="Type once, send to ALL open panes"
+                >
+                  <Radio className="size-4" />
+                  Broadcast {broadcast ? "ON" : "OFF"}
+                </Button>
+                <Button variant="outline" size="sm" onClick={splitActive} title="Open another shell of the active server">
+                  <Columns2 className="size-4" /> Split
+                </Button>
+                <Button variant="outline" size="sm" onClick={openSftp} title="Open SFTP file browser">
+                  <FolderOpen className="size-4" /> SFTP
+                </Button>
+                <div className="ml-auto">
+                  <HostSearch onOpen={openHost} />
+                </div>
+              </div>
+              {/* Thanh TASK (cố định): host lẻ + Workspace (split). Kéo một task thả
+                  vào cạnh view → gộp thành workspace. */}
+              {taskDisplay.length > 0 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-sidebar px-2 py-1.5">
+                  {taskDisplay.map((t) => (
+                    <TaskTab
+                      key={t.id}
+                      task={t}
+                      active={t.id === activeTask}
+                      onSwitch={switchTask}
+                      onClose={closeTask}
+                      onDuplicate={(id) => duplicateTask(id, true)}
+                      onSplit={(id) => duplicateTask(id, false)}
+                      onDuplicateWindow={duplicateTaskWindow}
+                    />
+                  ))}
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    title="Open a new SSH session"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Plus className="size-4" />
+                  </button>
+                </div>
+              )}
+              <div className="relative min-h-0 flex-1">
+                <DockviewReact
+                  className={cn(
+                    "dockview-theme-abyss absolute inset-0",
+                    split && "dv-panes",
+                    broadcast && "ring-2 ring-inset ring-destructive"
+                  )}
+                  components={components}
+                  tabComponents={tabComponents}
+                  watermarkComponent={EmptyWatermark}
+                  onReady={onReady}
+                />
               </div>
             </div>
-            {/* Thanh TASK (cố định): host lẻ + Workspace (split). Kéo một task thả
-                vào cạnh view → gộp thành workspace. */}
-            {taskDisplay.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border bg-sidebar px-2 py-1.5">
-                {taskDisplay.map((t) => (
-                  <TaskTab
-                    key={t.id}
-                    task={t}
-                    active={t.id === activeTask}
-                    onSwitch={switchTask}
-                    onClose={closeTask}
-                    onDuplicate={(id) => duplicateTask(id, true)}
-                    onSplit={(id) => duplicateTask(id, false)}
-                    onDuplicateWindow={duplicateTaskWindow}
-                  />
-                ))}
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  title="Open a new SSH session"
-                  className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <Plus className="size-4" />
-                </button>
+
+            {/* Feature pages — phủ lên workspace khi ở Home */}
+            {showHome && (
+              <div className="absolute inset-0 z-10 bg-background">
+                {section === "hosts" && <HostsPage onOpen={openHost} onAdd={openAdd} onEdit={openEdit} onMonitor={openMonitor} />}
+                {section === "keychain" && <KeychainPage onManage={() => setKeysOpen(true)} />}
+                {section === "forwarding" && <ForwardingView />}
+                {section === "passwords" && <VaultView />}
+                {section === "settings" && <SettingsPage onSync={() => setSyncOpen(true)} />}
+                {section === "snippets" && (
+                  <Placeholder icon={Code2} title="Snippets" note="Saved commands are coming soon." />
+                )}
+                {section === "known" && <KnownHostsPage />}
+                {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
+                {section === "dns" && <CloudflareDnsPage />}
+                {section === "storage" && <StoragePage />}
               </div>
             )}
-            <div className="relative min-h-0 flex-1">
-              <DockviewReact
-                className={cn(
-                  "dockview-theme-abyss absolute inset-0",
-                  split && "dv-panes",
-                  broadcast && "ring-2 ring-inset ring-destructive"
-                )}
-                components={components}
-                tabComponents={tabComponents}
-                watermarkComponent={EmptyWatermark}
-                onReady={onReady}
-              />
-            </div>
-          </div>
+          </main>
+        </div>
 
-          {/* Feature pages — phủ lên workspace khi ở Home */}
-          {showHome && (
-            <div className="absolute inset-0 z-10 bg-background">
-              {section === "hosts" && <HostsPage onOpen={openHost} onAdd={openAdd} onEdit={openEdit} onMonitor={openMonitor} />}
-              {section === "keychain" && <KeychainPage onManage={() => setKeysOpen(true)} />}
-              {section === "forwarding" && <ForwardingView />}
-              {section === "passwords" && <VaultView />}
-              {section === "settings" && <SettingsPage onSync={() => setSyncOpen(true)} />}
-              {section === "snippets" && (
-                <Placeholder icon={Code2} title="Snippets" note="Saved commands are coming soon." />
-              )}
-              {section === "known" && <KnownHostsPage />}
-              {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
-              {section === "dns" && <CloudflareDnsPage />}
-              {section === "storage" && <StoragePage />}
-            </div>
-          )}
-        </main>
+        <HostForm open={formOpen} host={editing} preset={preset} onOpenChange={setFormOpen} onSaved={refresh} />
+        <KeyManager open={keysOpen} onOpenChange={setKeysOpen} />
+        <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
+        <SyncConflictDialog />
+        <DialogHost />
+        <UpdateManager />
+        <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
+        <ConnectStatus status={conn} onRetry={retryConn} onExit={exitConn} />
       </div>
-
-      <HostForm open={formOpen} host={editing} preset={preset} onOpenChange={setFormOpen} onSaved={refresh} />
-      <KeyManager open={keysOpen} onOpenChange={setKeysOpen} />
-      <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
-      <SyncConflictDialog />
-      <DialogHost />
-      <UpdateManager />
-      <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
-      <ConnectStatus status={conn} onRetry={retryConn} onExit={exitConn} />
-    </div>
+      {locked && <LockScreen onUnlock={() => setLocked(false)} />}
+    </>
   );
 }
