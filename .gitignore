@@ -38,3 +38,4 @@ native/*.node
 .electron-app/
 .electron-extra/
 release/
+.codegraph
