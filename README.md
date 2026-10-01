@@ -152,7 +152,9 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 
 **Security & app lock**
 - Secrets live in the **OS keychain** (Secret Service), never plaintext in the DB
-- **App Lock**: master password to open the app + **idle auto-lock**
+- **App Lock**: master password to open the app + **idle auto-lock** — locking only
+  covers the window: SSH sessions, tasks and open pages keep running and are exactly
+  as you left them after unlocking
 - **Two-factor (TOTP)** with a configurable **re-authentication interval**
 
 **Settings & updates**
