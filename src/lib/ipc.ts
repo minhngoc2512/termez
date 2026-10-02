@@ -271,7 +271,7 @@ export interface DbTableSizes {
   rows_exact: boolean;
 }
 
-export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis";
+export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
 export interface DbConnection {
@@ -326,7 +326,7 @@ export interface DbSessionInfo {
 
 export interface DbTreeNode {
   name: string;
-  kind: "database" | "schema" | "table" | "view" | "column" | "key" | "info";
+  kind: "database" | "schema" | "table" | "view" | "collection" | "column" | "key" | "info";
   detail: string | null;
   leaf: boolean;
 }

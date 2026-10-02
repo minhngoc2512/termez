@@ -15,12 +15,18 @@ const fmtRows = (n: number | null) => (n === null ? "—" : Math.round(n).toLoca
 export function TableSizesDialog({
   sessionId,
   database,
+  kind,
   onClose,
 }: {
   sessionId: string;
   database: string | null;
+  kind?: string;
   onClose: () => void;
 }) {
+  // MongoDB: collection / document thay cho table / row.
+  const mongo = kind === "mongodb";
+  const tableNoun = mongo ? "collection" : "table";
+  const rowNoun = mongo ? "documents" : "rows";
   const [data, setData] = useState<DbTableSizes | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -39,8 +45,8 @@ export function TableSizesDialog({
 
   const ch = data?.tables.some((t) => t.uncompressed_bytes !== null) ?? false;
   const cols: { key: SortKey; label: string; num: boolean }[] = [
-    { key: "name", label: "Table", num: false },
-    { key: "rows", label: data && !data.rows_exact ? "Rows (est.)" : "Rows", num: true },
+    { key: "name", label: mongo ? "Collection" : "Table", num: false },
+    { key: "rows", label: (mongo ? "Documents" : "Rows") + (data && !data.rows_exact ? " (est.)" : ""), num: true },
     { key: "total_bytes", label: ch ? "On disk" : "Total size", num: true },
     ...(ch
       ? [{ key: "uncompressed_bytes" as SortKey, label: "Uncompressed", num: true }]
@@ -84,19 +90,19 @@ export function TableSizesDialog({
           <CopyableError text={error} />
         ) : !data ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading table sizes…
+            <Loader2 className="size-4 animate-spin" /> Loading {tableNoun} sizes…
           </p>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span>
-                <b>{rows.length.toLocaleString()}</b> {rows.length === 1 ? "table" : "tables"}
+                <b>{rows.length.toLocaleString()}</b> {rows.length === 1 ? tableNoun : `${tableNoun}s`}
               </span>
               <span>
                 <b>{fmtBytes(totalBytes)}</b> {ch ? "on disk" : "total"}
               </span>
               <span>
-                <b>{fmtRows(totalRows)}</b> rows{data.rows_exact ? "" : " (estimated)"}
+                <b>{fmtRows(totalRows)}</b> {rowNoun}{data.rows_exact ? "" : " (estimated)"}
               </span>
               <div className="ml-auto flex items-center gap-1.5 rounded-md border border-input bg-background px-2">
                 <Search className="size-3.5 text-muted-foreground" />
@@ -104,7 +110,7 @@ export function TableSizesDialog({
                   autoFocus
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Filter tables…"
+                  placeholder={`Filter ${tableNoun}s…`}
                   className="w-48 bg-transparent py-1 text-xs outline-none"
                 />
               </div>
@@ -136,7 +142,7 @@ export function TableSizesDialog({
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={cols.length + 1} className="px-3 py-4 text-center font-sans text-muted-foreground">
-                        {data.tables.length === 0 ? "No tables in this database." : "No tables match."}
+                        {data.tables.length === 0 ? `No ${tableNoun}s in this database.` : `No ${tableNoun}s match.`}
                       </td>
                     </tr>
                   ) : (

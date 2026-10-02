@@ -308,7 +308,7 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           )}
         </div>
       </div>
-      <TableSizesDialog sessionId={session.session_id} database={sizesDb} onClose={() => setSizesDb(null)} />
+      <TableSizesDialog sessionId={session.session_id} database={sizesDb} kind={kind} onClose={() => setSizesDb(null)} />
     </div>
   );
 }
@@ -324,7 +324,7 @@ interface LoggedQuery {
   maxElapsed: number;
 }
 
-/** Bảng đầu tiên có cột "query" (SQL DB); Redis không có → không có query log. */
+/** Bảng đầu tiên có cột "query" (SQL DB, MongoDB); Redis không có → không có query log. */
 function hasQueryLog(s: DbMonitorSnapshot): boolean {
   return s.tables.some((t) => t.columns.includes("query"));
 }

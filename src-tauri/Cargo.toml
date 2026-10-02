@@ -44,6 +44,8 @@ tokio-postgres-rustls = { version = "0.14", default-features = false, features =
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 futures-util = "0.3"
+# MongoDB: driver chính thức (TLS rustls + ring; dns-resolver cho mongodb+srv://).
+mongodb = "3"
 redis = { version = "1", default-features = false, features = ["tokio-comp", "tokio-rustls-comp", "tls-rustls-insecure", "tls-rustls-webpki-roots"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì

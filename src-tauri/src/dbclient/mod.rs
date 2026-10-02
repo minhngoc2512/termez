@@ -5,6 +5,8 @@
 //! driver kết nối vào 127.0.0.1:<cổng đó>; TLS vẫn kiểm tra theo tên host thật.
 
 mod clickhouse;
+mod mongo;
+mod mongo_shell;
 mod mysql;
 mod postgres;
 mod redis;
@@ -23,7 +25,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Thông số kết nối đã resolve (mật khẩu lấy từ keychain, tunnel đã mở nếu có).
 #[derive(Clone)]
 pub struct ConnectSpec {
-    /// "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis"
+    /// "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb"
     pub kind: String,
     /// Địa chỉ driver kết nối thật (127.0.0.1 khi đi qua tunnel).
     pub host: String,
@@ -36,6 +38,8 @@ pub struct ConnectSpec {
     /// "disable" | "prefer" | "require" | "verify"
     pub ssl_mode: String,
     pub read_only: bool,
+    /// JSON tuỳ chọn riêng từng loại (MongoDB: {"authSource": "...", "uri": "mongodb+srv://..."}).
+    pub options: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -67,7 +71,7 @@ pub struct QueryOutput {
 #[derive(Serialize)]
 pub struct TreeNode {
     pub name: String,
-    /// "database" | "schema" | "table" | "view" | "column" | "key" | "info"
+    /// "database" | "schema" | "table" | "view" | "collection" | "column" | "key" | "info"
     pub kind: String,
     /// Thông tin phụ (kiểu cột, khoá chính…).
     pub detail: Option<String>,
@@ -142,6 +146,7 @@ enum Backend {
     Postgres(postgres::PgSession),
     ClickHouse(clickhouse::ChSession),
     Redis(redis::RedisSession),
+    Mongo(mongo::MongoSession),
 }
 
 struct Session {
@@ -177,6 +182,10 @@ async fn connect(spec: &ConnectSpec) -> anyhow::Result<(Backend, String)> {
                 let (s, v) = redis::RedisSession::connect(spec).await?;
                 Ok((Backend::Redis(s), v))
             }
+            "mongodb" => {
+                let (s, v) = mongo::MongoSession::connect(spec).await?;
+                Ok((Backend::Mongo(s), v))
+            }
             other => anyhow::bail!("Loại database chưa hỗ trợ: {other}"),
         }
     };
@@ -193,6 +202,7 @@ pub async fn list_databases(spec: &ConnectSpec) -> anyhow::Result<Vec<String>> {
         Backend::Postgres(s) => s.tree(&[]).await?,
         Backend::ClickHouse(s) => s.tree(&[]).await?,
         Backend::Redis(s) => s.tree(&[]).await?,
+        Backend::Mongo(s) => s.tree(&[]).await?,
     };
     Ok(nodes
         .into_iter()
@@ -239,6 +249,7 @@ impl DbManager {
             Backend::Postgres(s) => Some(s.default_database().to_string()),
             Backend::ClickHouse(s) => s.default_database(),
             Backend::Redis(s) => Some(s.default_database()),
+            Backend::Mongo(s) => s.default_database().or(s.current_database().await),
         };
         self.sessions
             .lock()
@@ -282,6 +293,7 @@ impl DbManager {
             Backend::Postgres(s) => s.tree(path).await,
             Backend::ClickHouse(s) => s.tree(path).await,
             Backend::Redis(s) => s.tree(path).await,
+            Backend::Mongo(s) => s.tree(path).await,
         }
     }
 
@@ -293,8 +305,9 @@ impl DbManager {
         limit: usize,
     ) -> anyhow::Result<QueryOutput> {
         let session = self.get(id).await?;
-        // Redis tự chặn theo cờ `write` của từng lệnh (xem redis.rs).
-        if session.read_only && !matches!(session.backend, Backend::Redis(_)) {
+        // Redis tự chặn theo cờ `write` của từng lệnh (xem redis.rs), MongoDB theo
+        // phương thức / lệnh (xem mongo.rs).
+        if session.read_only && !matches!(session.backend, Backend::Redis(_) | Backend::Mongo(_)) {
             ensure_read_only(sql)?;
         }
         let started = Instant::now();
@@ -304,6 +317,7 @@ impl DbManager {
             Backend::Postgres(s) => s.query(database, sql, limit).await?,
             Backend::ClickHouse(s) => s.query(database, sql, limit).await?,
             Backend::Redis(s) => s.query(database, sql, limit).await?,
+            Backend::Mongo(s) => s.query(database, sql, limit).await?,
         };
         Ok(QueryOutput { results, elapsed_ms: started.elapsed().as_millis() as u64, database })
     }
@@ -315,6 +329,7 @@ impl DbManager {
             Backend::Postgres(s) => s.monitor(breakdown).await,
             Backend::ClickHouse(s) => s.monitor(breakdown).await,
             Backend::Redis(s) => s.monitor(breakdown).await,
+            Backend::Mongo(s) => s.monitor(breakdown).await,
         }
     }
 
@@ -325,6 +340,7 @@ impl DbManager {
             Backend::Postgres(s) => s.table_sizes(database).await,
             Backend::ClickHouse(s) => s.table_sizes(database).await,
             Backend::Redis(_) => anyhow::bail!("Redis has no tables"),
+            Backend::Mongo(s) => s.table_sizes(database).await,
         }
     }
 
@@ -340,6 +356,7 @@ impl DbManager {
             Backend::Postgres(s) => s.kill(target).await,
             Backend::ClickHouse(s) => s.kill(target).await,
             Backend::Redis(s) => s.kill(target).await,
+            Backend::Mongo(s) => s.kill(target).await,
         }
     }
 
@@ -350,6 +367,7 @@ impl DbManager {
             Backend::Postgres(s) => s.cancel().await,
             Backend::ClickHouse(s) => s.cancel().await,
             Backend::Redis(s) => s.cancel().await,
+            Backend::Mongo(s) => s.cancel().await,
         }
     }
 }
@@ -535,6 +553,7 @@ mod tests {
             database: Some(database.into()),
             ssl_mode: "prefer".into(),
             read_only,
+            options: None,
         })
     }
 
@@ -812,6 +831,88 @@ mod tests {
             s,
             &["ev_Query", "m_MemoryTracking", "a_Uptime"],
             "SELECT sleepEachRow(0.5) AS termez_mon FROM numbers(60) SETTINGS max_block_size = 1",
+            "termez_mon",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn mongo_roundtrip() {
+        let Some(s) = spec("TERMEZ_TEST_MONGO", "mongodb", "shop", false) else { return };
+        let m = std::sync::Arc::new(DbManager::new());
+        let info = m.open(s.clone(), None).await.expect("open");
+        assert!(!info.server_version.is_empty());
+        assert_eq!(info.database.as_deref(), Some("shop"));
+        let id = info.session_id;
+        let out = m
+            .query(
+                &id,
+                None,
+                "db.t.drop()\ndb.t.insertMany([{ _id: 1, name: 'ann', tags: ['a'] }, { _id: 2, name: 'bob', at: ISODate('2026-10-01') }])\n\
+                 db.t.find({}).sort({ _id: 1 })",
+                1000,
+            )
+            .await
+            .expect("script");
+        assert_eq!(out.results[1].affected, Some(2));
+        let last = out.results.last().unwrap();
+        assert_eq!(last.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["_id", "name", "tags", "at"]);
+        assert_eq!(last.rows[0][2].as_deref(), Some("[\"a\"]"));
+        assert_eq!(last.rows[1][3].as_deref(), Some("2026-10-01T00:00:00Z"));
+        let out = m.query(&id, None, "db.t.aggregate([{ $group: { _id: null, n: { $sum: 1 } } }])", 10).await.unwrap();
+        assert_eq!(out.results[0].rows[0][1].as_deref(), Some("2"));
+        let out = m.query(&id, None, "use other; show collections; use shop", 10).await.unwrap();
+        assert_eq!(out.database.as_deref(), Some("shop"));
+
+        // Giới hạn dòng.
+        let docs: Vec<String> = (0..30).map(|i| format!("{{ k: {i} }}")).collect();
+        m.query(&id, None, &format!("db.big.drop(); db.big.insertMany([{}])", docs.join(",")), 10).await.unwrap();
+        let out = m.query(&id, None, "db.big.find()", 10).await.unwrap();
+        assert_eq!(out.results[0].rows.len(), 10);
+        assert!(out.results[0].truncated);
+
+        assert!(list_databases(&s).await.unwrap().contains(&"shop".to_string()));
+        let colls = m.tree(&id, &["shop".into()]).await.unwrap();
+        assert!(colls.iter().any(|n| n.name == "t" && n.kind == "collection"));
+        let fields = m.tree(&id, &["shop".into(), "t".into()]).await.unwrap();
+        assert_eq!(fields[0].name, "_id");
+        let sizes = m.table_sizes(&id, "shop").await.unwrap();
+        assert_eq!(sizes.tables.iter().find(|t| t.name == "t").and_then(|t| t.rows), Some(2.0));
+
+        // Huỷ lệnh dài ($where + sleep).
+        let (m2, id2) = (m.clone(), id.clone());
+        let t = tokio::spawn(async move { m2.query(&id2, None, "db.t.find({ $where: 'sleep(15000) || true' })", 10).await });
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        m.cancel(&id).await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(3), t).await.is_ok(), "cancel không có tác dụng");
+
+        // Read-only.
+        let ro = m.open(ConnectSpec { read_only: true, ..s.clone() }, None).await.unwrap().session_id;
+        assert!(m.query(&ro, None, "db.t.find({})", 10).await.is_ok());
+        for w in [
+            "db.t.insertOne({ x: 1 })",
+            "db.t.deleteMany({})",
+            "db.t.aggregate([{ $out: 'copy' }])",
+            "db.runCommand({ drop: 't' })",
+            "db.dropDatabase()",
+        ] {
+            assert!(m.query(&ro, None, w, 10).await.is_err(), "read-only cho phép: {w}");
+        }
+        assert!(m.query(&ro, None, "db.runCommand({ ping: 1 })", 10).await.is_ok());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn monitor_mongo() {
+        let Some(s) = spec("TERMEZ_TEST_MONGO", "mongodb", "shop", false) else { return };
+        let m = DbManager::new();
+        let id = m.open(s.clone(), None).await.unwrap().session_id;
+        m.query(&id, None, "db.mon.drop(); db.mon.insertMany([{ a: 1 }, { a: 2 }])", 10).await.unwrap();
+        monitor_roundtrip(
+            s,
+            &["op_query", "op_insert", "conn_current", "net_in", "uptime"],
+            "db.mon.find({ $where: \"sleep(15000) || 'termez_mon'\" })",
             "termez_mon",
         )
         .await;

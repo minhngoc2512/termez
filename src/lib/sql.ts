@@ -3,10 +3,10 @@
 // với chuỗi, định danh có nháy và comment.
 import type { DbKind, DbResultSet } from "./ipc";
 
-export type Dialect = "mysql" | "postgres" | "clickhouse" | "redis";
+export type Dialect = "mysql" | "postgres" | "clickhouse" | "redis" | "mongodb";
 
 export function dialectOf(kind: DbKind): Dialect {
-  if (kind === "postgres" || kind === "clickhouse" || kind === "redis") return kind;
+  if (kind === "postgres" || kind === "clickhouse" || kind === "redis" || kind === "mongodb") return kind;
   return "mysql";
 }
 
@@ -35,6 +35,7 @@ export interface Statement {
  */
 export function splitStatements(sql: string, d: Dialect): Statement[] {
   if (d === "redis") return splitLines(sql);
+  if (d === "mongodb") return splitMongo(sql);
   const out: Statement[] = [];
   let start = 0;
   let i = 0;
@@ -84,6 +85,41 @@ function splitLines(text: string): Statement[] {
   return out;
 }
 
+/**
+ * MongoDB shell: tách theo `;` ở cấp ngoài cùng, hoặc xuống dòng ở cấp ngoài cùng khi
+ * dòng sau bắt đầu câu mới (db. / db[ / show / use) — khớp split_script phía Rust.
+ */
+function splitMongo(src: string): Statement[] {
+  const out: Statement[] = [];
+  let start = 0;
+  let depth = 0;
+  let i = 0;
+  const n = src.length;
+  const push = (end: number) => {
+    const raw = src.slice(start, end);
+    const text = raw.replace(/^(\s*\/\/[^\n]*\n?)+/, "").trim();
+    if (text) {
+      const lead = raw.indexOf(text);
+      out.push({ text, start: start + Math.max(lead, 0), end });
+    }
+    start = end + 1;
+  };
+  while (i < n) {
+    const c = src[i];
+    if (c === "'" || c === '"') i = quoteEnd(src, i, c);
+    else if (c === "/" && src[i + 1] === "/") i = lineEnd(src, i) - 1;
+    else {
+      if ("{[(".includes(c)) depth++;
+      else if ("}])".includes(c)) depth--;
+      else if (c === ";" && depth <= 0) push(i);
+      else if (c === "\n" && depth <= 0 && /^\s*(db\.|db\[|show |use )/.test(src.slice(i + 1, i + 40))) push(i);
+      i++;
+    }
+  }
+  push(n);
+  return out;
+}
+
 function lineEnd(s: string, i: number): number {
   const e = s.indexOf("\n", i);
   return e < 0 ? s.length : e + 1;
@@ -123,6 +159,15 @@ export function dangerousStatements(sql: string, d: Dialect): string[] {
       if (["FLUSHALL", "FLUSHDB", "SHUTDOWN", "SWAPDB", "DEBUG", "MIGRATE"].includes(cmd)) out.push(st.text);
       else if (cmd === "KEYS") out.push(`${st.text} … (blocks the server on large databases — prefer SCAN)`);
       else if (cmd === "CONFIG" && /^config\s+(set|resetstat|rewrite)/i.test(st.text)) out.push(st.text);
+    }
+    return out;
+  }
+  if (d === "mongodb") {
+    for (const st of splitMongo(sql)) {
+      const t = st.text.replace(/\s+/g, "");
+      const head = st.text.slice(0, 80).replace(/\s+/g, " ");
+      if (/\.(drop|dropDatabase|dropIndexes?)\(/.test(t) || /dropDatabase|["']?drop["']?:/.test(t)) out.push(head);
+      else if (/\.(deleteMany|updateMany|remove)\(\{\}[,)]/.test(t)) out.push(`${head} … (empty filter — affects every document)`);
     }
     return out;
   }

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw, KeyRound, Info } from "lucide-react";
+import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw, KeyRound, Info, FileJson } from "lucide-react";
 import * as dbPool from "../../lib/dbPool";
 import type { DbPane } from "../../lib/dbPool";
 import type { DbTreeNode } from "../../lib/ipc";
 import { CopyableError } from "./CopyableError";
 import { cn } from "@/lib/utils";
 
-const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3, key: KeyRound, info: Info } as const;
+const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, collection: FileJson, column: Columns3, key: KeyRound, info: Info } as const;
 
 export interface TreeMenuAction {
   label: string;
@@ -16,7 +16,7 @@ export interface TreeMenuAction {
 interface Props {
   panelId: string;
   pane: DbPane;
-  /** Double-click bảng/view hoặc key Redis. */
+  /** Double-click bảng/view, collection MongoDB hoặc key Redis. */
   onOpenNode: (node: DbTreeNode, path: string[]) => void;
   /** Menu chuột phải cho một node. */
   menuFor: (node: DbTreeNode, path: string[]) => TreeMenuAction[];
@@ -67,7 +67,7 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
       const k = dbPool.pathKey(p);
       const open = !!pane.expanded[k];
       const Icon = ICONS[n.kind] ?? Table2;
-      const openable = n.kind === "table" || n.kind === "view" || n.kind === "key";
+      const openable = n.kind === "table" || n.kind === "view" || n.kind === "collection" || n.kind === "key";
       const current = n.kind === "database" && n.name === pane.database;
       return (
         <div key={k}>

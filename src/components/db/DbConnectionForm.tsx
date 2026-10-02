@@ -17,6 +17,7 @@ export const DB_KINDS: { id: DbKind; label: string; port: number; user: string }
   { id: "mariadb", label: "MariaDB", port: 3306, user: "root" },
   { id: "postgres", label: "PostgreSQL", port: 5432, user: "postgres" },
   { id: "clickhouse", label: "ClickHouse", port: 8123, user: "default" },
+  { id: "mongodb", label: "MongoDB", port: 27017, user: "" },
   { id: "redis", label: "Redis", port: 6379, user: "" },
 ];
 
@@ -28,6 +29,33 @@ const SSL_MODES: { id: DbSslMode; label: string }[] = [
 ];
 
 const NONE = "__none__";
+
+/** Tuỳ chọn riêng của MongoDB (lưu trong `options` dạng JSON). */
+interface MongoOptions {
+  authSource?: string;
+  uri?: string;
+}
+
+function parseOptions(raw: string | null | undefined): MongoOptions {
+  try {
+    return raw ? (JSON.parse(raw) as MongoOptions) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Tách user:password khỏi connection string (mật khẩu phải vào keychain, không nằm trong options). */
+function splitUriCredentials(uri: string): { uri: string; user?: string; password?: string } {
+  const m = /^(mongodb(?:\+srv)?:\/\/)([^@/]*)@(.*)$/i.exec(uri.trim());
+  if (!m) return { uri: uri.trim() };
+  const [user, ...pw] = m[2].split(":");
+  return { uri: m[1] + m[3], user: decodeURIComponent(user), password: pw.length ? decodeURIComponent(pw.join(":")) : undefined };
+}
+
+/** Host hiển thị trong danh sách từ connection string. */
+function uriHost(uri: string): string {
+  return uri.replace(/^mongodb(\+srv)?:\/\/([^@/]*@)?/i, "").split(/[/?]/)[0] || "mongodb";
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -63,6 +91,9 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   const [sslMode, setSslMode] = useState<DbSslMode>("prefer");
   const [readOnly, setReadOnly] = useState(false);
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [authSource, setAuthSource] = useState("");
+  const [uri, setUri] = useState("");
+  const [useUri, setUseUri] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
@@ -82,6 +113,10 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
     setSslMode(conn?.ssl_mode ?? "prefer");
     setReadOnly(conn?.read_only ?? false);
     setGroupId(conn ? conn.group_id : (defaultGroupId ?? null));
+    const o = parseOptions(conn?.options);
+    setAuthSource(o.authSource ?? "");
+    setUri(o.uri ?? "");
+    setUseUri(!!o.uri);
     setError(null);
     setTestMsg(null);
   }, [open, conn, defaultGroupId]);
@@ -99,23 +134,50 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
     setKind(k);
   }
 
+  const mongoUri = kind === "mongodb" && useUri;
+
   function buildInput(): DbConnectionInput {
     const label = DB_KINDS.find((x) => x.id === kind)!.label;
+    let options = conn?.options ?? null;
+    let user = username.trim();
+    let pw = password || null;
+    let h = host.trim();
+    if (kind === "mongodb") {
+      const o: MongoOptions = { ...parseOptions(conn?.options), authSource: authSource.trim() || undefined, uri: undefined };
+      if (mongoUri) {
+        const c = splitUriCredentials(uri);
+        o.uri = c.uri;
+        if (c.user && !user) user = c.user;
+        if (c.password && !pw) pw = c.password;
+        h = uriHost(c.uri);
+      }
+      options = JSON.stringify(o);
+    }
     return {
       id: conn?.id ?? null,
-      name: name.trim() || `${label} ${host.trim()}`,
+      name: name.trim() || `${label} ${h}`,
       kind,
-      host: host.trim(),
+      host: h,
       port: Number(port) || DB_KINDS.find((x) => x.id === kind)!.port,
-      username: username.trim(),
-      password: password || null,
+      username: user,
+      password: pw,
       database: database.trim() || null,
-      ssh_host_id: sshHostId,
+      ssh_host_id: mongoUri ? null : sshHostId,
       ssl_mode: sslMode,
       read_only: readOnly,
-      options: conn?.options ?? null,
+      options,
       group_id: groupId,
     };
+  }
+
+  /** Dán connection string có user:password → đưa sang ô User/Password ngay. */
+  function changeUri(v: string) {
+    const c = splitUriCredentials(v);
+    if (c.user !== undefined) {
+      setUsername(c.user);
+      if (c.password !== undefined) setPassword(c.password);
+      setUri(c.uri);
+    } else setUri(v);
   }
 
   async function test() {
@@ -132,8 +194,8 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   }
 
   async function save() {
-    if (!host.trim() || (kind !== "redis" && !username.trim())) {
-      setError(kind === "redis" ? "Host is required." : "Host and user are required.");
+    if (mongoUri ? !uri.trim() : !host.trim() || (!userOptional && !username.trim())) {
+      setError(mongoUri ? "Connection string is required." : userOptional ? "Host is required." : "Host and user are required.");
       return;
     }
     setSaving(true);
@@ -162,9 +224,11 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   }
 
   const via = sshHostId ? hosts.find((h) => h.id === sshHostId) : null;
+  // Redis / MongoDB có thể không bật xác thực.
+  const userOptional = kind === "redis" || kind === "mongodb";
   // Đủ thông tin để thử kết nối (lấy danh sách database).
-  const canConnect = !!host.trim() && (kind === "redis" || !!username.trim());
-  const connKey = JSON.stringify([kind, host.trim(), port, username.trim(), password, sshHostId, sslMode]);
+  const canConnect = mongoUri ? !!uri.trim() : !!host.trim() && (userOptional || !!username.trim());
+  const connKey = JSON.stringify([kind, host.trim(), port, username.trim(), password, sshHostId, sslMode, authSource, mongoUri && uri]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -230,11 +294,49 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
               <div className="mt-0.5 text-xs text-muted-foreground">
                 {kind === "redis"
                   ? "Blocks every command the server flags as a write (SET, DEL, HSET, FLUSHDB…)."
+                  : kind === "mongodb"
+                  ? "Blocks inserts, updates, deletes, drops, index changes, aggregate with $out/$merge and any runCommand that isn't a read."
                   : "Blocks INSERT, UPDATE, DELETE, DDL (CREATE/ALTER/DROP/TRUNCATE) and SET — only SELECT, SHOW, DESCRIBE and EXPLAIN run. The server session is read-only too."}
               </div>
             </div>
           </label>
 
+          {kind === "mongodb" && (
+            <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
+              {[
+                { v: false, label: "Host & port" },
+                { v: true, label: "Connection string" },
+              ].map((o) => (
+                <button
+                  key={o.label}
+                  type="button"
+                  onClick={() => setUseUri(o.v)}
+                  className={cn(
+                    "flex-1 rounded-md px-3 py-1 transition-colors",
+                    useUri === o.v ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mongoUri ? (
+            <Field label="Connection string">
+              <Input
+                value={uri}
+                onChange={(e) => changeUri(e.target.value)}
+                placeholder="mongodb+srv://cluster0.example.mongodb.net/?retryWrites=true"
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                For Atlas / replica sets (mongodb+srv:// or several hosts). Credentials in the string are moved to User / Password
+                below. Can't be combined with an SSH tunnel.
+              </p>
+            </Field>
+          ) : (
+          <>
           <Field label={sshHostId && !via ? "Connect through SSH (tunnel) — ⚠ the saved host no longer exists" : "Connect through SSH (tunnel)"}>
             <Select value={sshHostId ?? NONE} onValueChange={(v) => setSshHostId(v === NONE ? null : v)}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -264,10 +366,12 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
               </Field>
             </div>
           </div>
+          </>
+          )}
 
           <div className="flex gap-3">
             <div className="flex-1">
-              <Field label={kind === "redis" ? "User (ACL, optional)" : "User"}>
+              <Field label={kind === "redis" ? "User (ACL, optional)" : kind === "mongodb" ? "User (optional)" : "User"}>
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={kind === "redis" ? "default" : ""} />
               </Field>
             </div>
@@ -313,6 +417,13 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
             />
           </Field>
 
+          {kind === "mongodb" && (
+            <Field label="Authentication database">
+              <Input value={authSource} onChange={(e) => setAuthSource(e.target.value)} placeholder="admin" />
+            </Field>
+          )}
+
+          {!mongoUri && (
           <Field label="TLS / SSL">
             <Select value={sslMode} onValueChange={(v) => setSslMode(v as DbSslMode)}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -323,6 +434,7 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
               </SelectContent>
             </Select>
           </Field>
+          )}
 
           {kind === "clickhouse" && (
             <p className="-mt-1 text-xs text-muted-foreground">
@@ -345,7 +457,7 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="outline" onClick={test} disabled={testing || !host.trim()}>
+          <Button variant="outline" onClick={test} disabled={testing || !canConnect}>
             {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
             Test connection
           </Button>

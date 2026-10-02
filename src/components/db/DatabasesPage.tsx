@@ -244,7 +244,7 @@ export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection)
             <Database className="size-10 opacity-40" />
             <p>No database connections yet.</p>
             <p className="max-w-md text-center text-xs">
-              MySQL, MariaDB, PostgreSQL, ClickHouse and Redis — directly or through an SSH tunnel over any of your hosts.
+              MySQL, MariaDB, PostgreSQL, ClickHouse, MongoDB and Redis — directly or through an SSH tunnel over any of your hosts.
             </p>
             <Button size="sm" onClick={() => newConnection(null)}>
               <Plus className="size-4" /> Add your first connection

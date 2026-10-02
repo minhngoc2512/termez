@@ -325,6 +325,68 @@ export const SPECS: Record<string, KindSpec> = {
     breakdownTitle: "Keys per database",
     breakdownUnit: "count",
   },
+
+  mongodb: {
+    derive: (prev, cur, dt) => {
+      const r = rater(prev, cur, dt);
+      return {
+        ops: r("op_insert") + r("op_query") + r("op_update") + r("op_delete") + r("op_getmore") + r("op_command"),
+        reads: r("op_query") + r("op_getmore"),
+        writes: r("op_insert") + r("op_update") + r("op_delete"),
+        commands: r("op_command"),
+        conn: cur.conn_current ?? 0,
+        available: cur.conn_available ?? 0,
+        queued: cur.queued ?? 0,
+        cache: cur.wt_cache_bytes ?? 0,
+        cacheMax: cur.wt_cache_max ?? 0,
+        resident: (cur.mem_resident_mb ?? 0) * 1024 * 1024,
+        netIn: r("net_in"),
+        netOut: r("net_out"),
+      };
+    },
+    cards: [
+      {
+        title: "Operations / s",
+        icon: Activity,
+        series: [
+          { key: "reads", label: "query + getmore", color: GREEN },
+          { key: "writes", label: "insert/update/delete", color: AMBER },
+          { key: "commands", label: "command", color: CYAN },
+        ],
+        value: (d) => fmtNum(d.ops),
+        sub: (d) => `${fmtNum(d.reads)} reads · ${fmtNum(d.writes)} writes · ${fmtNum(d.commands)} commands`,
+      },
+      {
+        title: "Connections",
+        icon: Users,
+        series: [
+          { key: "conn", label: "current", color: GREEN },
+          { key: "queued", label: "queued", color: RED },
+        ],
+        value: (d) => fmtNum(d.conn),
+        sub: (d) => `${fmtNum(d.available)} available · ${fmtNum(d.queued)} queued`,
+      },
+      {
+        title: "WiredTiger cache",
+        icon: MemoryStick,
+        series: [{ key: "cache", label: "in cache", color: AMBER }],
+        value: (d) => fmtBytes(d.cache),
+        sub: (d) => `${d.cacheMax ? `max ${fmtBytes(d.cacheMax)}` : "—"} · resident ${fmtBytes(d.resident)}`,
+      },
+      {
+        title: "Network",
+        icon: ArrowDownUp,
+        series: [
+          { key: "netIn", label: "in", color: CYAN },
+          { key: "netOut", label: "out", color: FUCHSIA },
+        ],
+        value: (d) => `↓ ${fmtBytes(d.netIn)}/s  ↑ ${fmtBytes(d.netOut)}/s`,
+      },
+    ],
+    uptime: (v) => v.uptime,
+    breakdownTitle: "Disk usage by database",
+    breakdownUnit: "bytes",
+  },
 };
 
 SPECS.mariadb = SPECS.mysql;

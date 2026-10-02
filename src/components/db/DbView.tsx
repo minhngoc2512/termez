@@ -30,7 +30,15 @@ const KIND_LABEL: Record<DbKind, string> = {
   postgres: "PostgreSQL",
   clickhouse: "ClickHouse",
   redis: "Redis",
+  mongodb: "MongoDB",
 };
+
+/** Collection trong mongo shell: db.name nếu là định danh hợp lệ, không thì db.getCollection("…"). */
+function mongoColl(name: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(name) && !["getCollection", "runCommand", "stats"].includes(name)
+    ? `db.${name}`
+    : `db.getCollection(${JSON.stringify(name)})`;
+}
 
 /** Bao key Redis cho console khi có khoảng trắng / nháy. */
 function redisArg(k: string): string {
@@ -112,6 +120,11 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   }
 
   function openNode(n: DbTreeNode, path: string[]) {
+    if (n.kind === "collection") {
+      const sql = `${mongoColl(n.name)}.find({}).limit(100)`;
+      dbPool.update(panelId, { sql });
+      return void run(false, sql, path[0]);
+    }
     if (n.kind !== "key") return openTable(path);
     const sql = redisViewCmd(n.name, n.detail);
     dbPool.update(panelId, { sql });
@@ -142,6 +155,21 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
       ];
     }
     if (n.kind === "info") return [];
+    if (n.kind === "collection") {
+      const c = mongoColl(n.name);
+      const exec = (sql: string) => {
+        dbPool.update(panelId, { sql });
+        void run(false, sql, path[0]);
+      };
+      return [
+        { label: "Find first 100 documents", run: () => openNode(n, path) },
+        { label: "Count documents", run: () => exec(`${c}.countDocuments({})`) },
+        { label: "Show indexes", run: () => exec(`${c}.getIndexes()`) },
+        { label: "Collection stats", run: () => exec(`${c}.stats()`) },
+        { label: "Copy name", run: () => copyText(n.name).catch(() => {}) },
+        { label: "Refresh fields", run: () => void dbPool.loadChildren(panelId, path) },
+      ];
+    }
     if (n.kind === "table" || n.kind === "view") {
       const q = qualifiedTable(path, d);
       items.push({ label: "Select first 100 rows", run: () => openTable(path) });
@@ -155,7 +183,8 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
       });
       items.push({ label: "Copy qualified name", run: () => copyText(q).catch(() => {}) });
     }
-    if (n.kind === "column") items.push({ label: "Copy name", run: () => copyText(quoteIdent(n.name, d)).catch(() => {}) });
+    if (n.kind === "column")
+      items.push({ label: "Copy name", run: () => copyText(d === "mongodb" ? n.name : quoteIdent(n.name, d)).catch(() => {}) });
     if (n.kind === "database") items.push({ label: "Use as current database", run: () => dbPool.update(panelId, { database: n.name }) });
     if (n.kind !== "column") items.push({ label: "Refresh", run: () => void dbPool.loadChildren(panelId, path) });
     return items;
@@ -273,7 +302,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
             </SelectContent>
           </Select>
 
-          {d !== "redis" && (
+          {d !== "redis" && d !== "mongodb" && (
             <Button size="sm" variant="ghost" onClick={() => editor.current?.format()} title="Format SQL (Ctrl+Alt+L)">
               <WandSparkles className="size-4" /> Format
             </Button>
@@ -307,7 +336,13 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           {pane.session?.read_only && (
             <span
               className="ml-auto flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-500"
-              title="Only SELECT / SHOW / DESCRIBE / EXPLAIN can run on this connection"
+              title={
+                d === "mongodb"
+                  ? "Only reads (find, aggregate without $out/$merge, count, distinct…) can run on this connection"
+                  : d === "redis"
+                    ? "Only read commands can run on this connection"
+                    : "Only SELECT / SHOW / DESCRIBE / EXPLAIN can run on this connection"
+              }
             >
               <Lock className="size-3.5" /> Read-only
             </span>
@@ -373,7 +408,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
                   <span>{pane.output!.elapsed_ms} ms</span>
                 </>
               ) : (
-                <span>Ctrl+Enter runs the statement at the cursor · Ctrl+Shift+Enter runs everything · double-click a table to browse it</span>
+                <span>Ctrl+Enter runs the statement at the cursor · Ctrl+Shift+Enter runs everything · double-click a {d === "mongodb" ? "collection" : d === "redis" ? "key" : "table"} to browse it</span>
               )}
               {result && result.columns.length > 0 && !pane.running && !pane.queryError && (
                 <div className="ml-auto flex gap-1">

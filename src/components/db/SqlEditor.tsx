@@ -3,8 +3,9 @@ import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLi
 import { EditorState, Compartment, Prec, Extension } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { sql, MySQL, PostgreSQL } from "@codemirror/lang-sql";
+import { javascript, javascriptLanguage } from "@codemirror/lang-javascript";
 import { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput } from "@codemirror/language";
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import { tags as t } from "@lezer/highlight";
 import { Dialect, statementAt } from "../../lib/sql";
 
@@ -38,9 +39,44 @@ const highlight = HighlightStyle.define([
   { tag: [t.special(t.name), t.quote], color: "#db2777" },
 ]);
 
-/** Ngôn ngữ của editor: SQL theo dialect (ClickHouse dùng cú pháp gần MySQL); Redis = văn bản thường. */
+const MONGO_DB_METHODS = ["getCollection", "getCollectionNames", "runCommand", "adminCommand", "stats", "serverStatus", "version", "dropDatabase"];
+const MONGO_COLL_METHODS = [
+  "find", "findOne", "aggregate", "countDocuments", "estimatedDocumentCount", "distinct", "insertOne", "insertMany",
+  "updateOne", "updateMany", "replaceOne", "deleteOne", "deleteMany", "getIndexes", "createIndex", "dropIndex", "stats", "drop",
+];
+const MONGO_CURSOR_METHODS = ["sort", "limit", "skip", "projection", "count"];
+
+/** Gợi ý cho console MongoDB: db.<collection> / db.<method>, rồi phương thức của collection / cursor. */
+function mongoCompletions(schema: Record<string, string[]>) {
+  return (ctx: CompletionContext): CompletionResult | null => {
+    const opts = (labels: string[], type: string) => labels.map((label) => ({ label, type }));
+    const db = ctx.matchBefore(/\bdb\.\w*$/);
+    if (db) {
+      return {
+        from: db.from + 3,
+        options: [...opts(Object.keys(schema), "class"), ...opts(MONGO_DB_METHODS, "method")],
+        validFor: /^\w*$/,
+      };
+    }
+    const coll = ctx.matchBefore(/\bdb\.(\w+|getCollection\((["'])[^"']*\2\))\.\w*$/);
+    if (coll) {
+      const dot = coll.text.lastIndexOf(".");
+      return { from: coll.from + dot + 1, options: opts(MONGO_COLL_METHODS, "method"), validFor: /^\w*$/ };
+    }
+    const cursor = ctx.matchBefore(/\)\s*\.\w*$/);
+    if (cursor) {
+      const dot = cursor.text.lastIndexOf(".");
+      return { from: cursor.from + dot + 1, options: opts(MONGO_CURSOR_METHODS, "method"), validFor: /^\w*$/ };
+    }
+    return null;
+  };
+}
+
+/** Ngôn ngữ của editor: SQL theo dialect (ClickHouse dùng cú pháp gần MySQL); Redis = văn bản thường;
+ *  MongoDB = cú pháp JavaScript (mongo shell). */
 function language(d: Dialect, schema: Record<string, string[]>): Extension {
   if (d === "redis") return [];
+  if (d === "mongodb") return [javascript(), javascriptLanguage.data.of({ autocomplete: mongoCompletions(schema) })];
   return sql({ dialect: d === "postgres" ? PostgreSQL : MySQL, schema, upperCaseKeywords: true });
 }
 
@@ -86,7 +122,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 
   async function doFormat() {
     const v = view.current;
-    if (!v || cb.current.dialect === "redis") return;
+    if (!v || cb.current.dialect === "redis" || cb.current.dialect === "mongodb") return;
     const sel = v.state.selection.main;
     const from = sel.empty ? 0 : sel.from;
     const to = sel.empty ? v.state.doc.length : sel.to;
@@ -119,6 +155,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           placeholder(
             dialect === "redis"
               ? "GET key   (one command per line · Ctrl+Enter: run line · Ctrl+Shift+Enter: run all)"
+              : dialect === "mongodb"
+              ? "db.collection.find({ … })   (show dbs · use <db> · Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all)"
               : "SELECT …   (Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all · Ctrl+Alt+L: format)"
           ),
           lang.current.of(language(dialect, {})),

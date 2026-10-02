@@ -2633,6 +2633,7 @@ async fn db_connect_spec(
         database: c.database.clone(),
         ssl_mode: c.ssl_mode.clone(),
         read_only: c.read_only,
+        options: c.options.clone(),
     };
     let mut tunnel = None;
     if let Some(host_id) = c.ssh_host_id.as_deref().filter(|h| !h.is_empty()) {
