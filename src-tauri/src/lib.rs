@@ -11,6 +11,7 @@ mod cloudflare;
 mod commands;
 mod conn;
 mod db;
+mod dbclient;
 mod keychain;
 mod keys;
 mod monitor;

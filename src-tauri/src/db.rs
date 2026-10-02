@@ -232,6 +232,21 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             added_at    INTEGER NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS ix_known_hosts_hp ON known_hosts(host, port);
+        CREATE TABLE IF NOT EXISTS db_connections (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            host        TEXT NOT NULL,
+            port        INTEGER NOT NULL,
+            username    TEXT NOT NULL,
+            database    TEXT,
+            ssh_host_id TEXT,
+            ssl_mode    TEXT NOT NULL DEFAULT 'prefer',
+            read_only   INTEGER NOT NULL DEFAULT 0,
+            options     TEXT,
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        );
         "#,
     )
     .execute(pool)
@@ -729,6 +744,105 @@ pub async fn upsert_bucket(
 
 pub async fn delete_bucket(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     sqlx::query("DELETE FROM storage_buckets WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+// ----- Kết nối database (mục Databases) -----
+
+/// Một kết nối database đã lưu. Mật khẩu nằm trong keychain (`dbpass:<id>`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct DbConnection {
+    pub id: String,
+    pub name: String,
+    /// "mysql" | "mariadb" | "postgres"
+    pub kind: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    /// Database mặc định (tuỳ chọn).
+    pub database: Option<String>,
+    /// Đi qua SSH tunnel của host này (host/port ở trên tính từ phía server SSH).
+    pub ssh_host_id: Option<String>,
+    /// "disable" | "prefer" | "require" | "verify"
+    pub ssl_mode: String,
+    pub read_only: bool,
+    /// JSON tuỳ chọn riêng từng loại DB (dành cho các loại sau).
+    pub options: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Deserialize)]
+pub struct DbConnectionInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub kind: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    /// None/rỗng khi sửa = giữ mật khẩu cũ.
+    pub password: Option<String>,
+    pub database: Option<String>,
+    pub ssh_host_id: Option<String>,
+    pub ssl_mode: String,
+    pub read_only: bool,
+    pub options: Option<String>,
+}
+
+pub async fn list_db_connections(pool: &SqlitePool) -> anyhow::Result<Vec<DbConnection>> {
+    Ok(sqlx::query_as::<_, DbConnection>(
+        "SELECT * FROM db_connections ORDER BY name COLLATE NOCASE",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+pub async fn get_db_connection(pool: &SqlitePool, id: &str) -> anyhow::Result<DbConnection> {
+    Ok(sqlx::query_as::<_, DbConnection>("SELECT * FROM db_connections WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await?)
+}
+
+pub async fn upsert_db_connection(
+    pool: &SqlitePool,
+    input: &DbConnectionInput,
+    id: &str,
+) -> anyhow::Result<DbConnection> {
+    let t = now();
+    sqlx::query(
+        r#"INSERT INTO db_connections (id, name, kind, host, port, username, database,
+             ssh_host_id, ssl_mode, read_only, options, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind,
+             host=excluded.host, port=excluded.port, username=excluded.username,
+             database=excluded.database, ssh_host_id=excluded.ssh_host_id,
+             ssl_mode=excluded.ssl_mode, read_only=excluded.read_only,
+             options=excluded.options, updated_at=excluded.updated_at"#,
+    )
+    .bind(id)
+    .bind(&input.name)
+    .bind(&input.kind)
+    .bind(&input.host)
+    .bind(input.port)
+    .bind(&input.username)
+    .bind(&input.database)
+    .bind(&input.ssh_host_id)
+    .bind(&input.ssl_mode)
+    .bind(input.read_only)
+    .bind(&input.options)
+    .bind(t)
+    .bind(t)
+    .execute(pool)
+    .await?;
+    get_db_connection(pool, id).await
+}
+
+pub async fn delete_db_connection(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
+    sqlx::query("DELETE FROM db_connections WHERE id = ?")
         .bind(id)
         .execute(pool)
         .await?;

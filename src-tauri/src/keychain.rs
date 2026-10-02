@@ -53,6 +53,9 @@ pub fn entry_totp(entry_id: &str) -> String {
 pub fn storage_secret(bucket_id: &str) -> String {
     format!("storagesecret:{bucket_id}")
 }
+pub fn db_password(conn_id: &str) -> String {
+    format!("dbpass:{conn_id}")
+}
 
 #[cfg(test)]
 mod tests {

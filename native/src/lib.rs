@@ -17,6 +17,8 @@ mod commands;
 mod conn;
 #[path = "../../src-tauri/src/db.rs"]
 mod db;
+#[path = "../../src-tauri/src/dbclient/mod.rs"]
+mod dbclient;
 #[path = "../../src-tauri/src/keychain.rs"]
 mod keychain;
 #[path = "../../src-tauri/src/keys.rs"]
@@ -109,6 +111,7 @@ pub async fn init(data_dir: String, on_event: StrFn, on_channel: BufFn) -> napi:
         dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         monitor: Arc::new(monitor::MonitorManager::new()),
         sync_base_path: data_dir.join("sync-base.enc"),
+        dbc: Arc::new(dbclient::DbManager::new()),
     }));
     let _ = STATE.set(state);
     let _ = APP.set(tauri::AppHandle::new(Arc::new(JsHost { on_event, on_channel })));

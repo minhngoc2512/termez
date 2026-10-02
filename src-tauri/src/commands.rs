@@ -26,6 +26,8 @@ pub struct AppState {
     pub monitor: Arc<crate::monitor::MonitorManager>,
     /// File lưu "base vault" (trạng thái lần đồng bộ trước) cho merge 3-way.
     pub sync_base_path: std::path::PathBuf,
+    /// Phiên database đang mở (mục Databases).
+    pub dbc: Arc<crate::dbclient::DbManager>,
 }
 
 /// Dựng chuỗi jump host từ `jump_host_id` (đệ quy, có chặn vòng lặp).
@@ -2345,3 +2347,136 @@ pub async fn ssh_disconnect(state: State<'_, AppState>, id: String) -> R<()> {
     state.ssh.disconnect(&id).await.map_err(e)
 }
 
+
+// ----- Databases (MySQL/MariaDB, PostgreSQL…) -----
+
+#[tauri::command]
+pub async fn get_db_connections(state: State<'_, AppState>) -> R<Vec<db::DbConnection>> {
+    db::list_db_connections(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn upsert_db_connection(
+    state: State<'_, AppState>,
+    input: db::DbConnectionInput,
+) -> R<db::DbConnection> {
+    let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let conn = db::upsert_db_connection(&state.db, &input, &id).await.map_err(e)?;
+    if let Some(pw) = input.password.as_deref().filter(|p| !p.is_empty()) {
+        keychain::set_secret(&keychain::db_password(&id), pw).map_err(e)?;
+    }
+    Ok(conn)
+}
+
+#[tauri::command]
+pub async fn delete_db_connection(state: State<'_, AppState>, id: String) -> R<()> {
+    db::delete_db_connection(&state.db, &id).await.map_err(e)?;
+    keychain::delete_secret(&keychain::db_password(&id)).ok();
+    Ok(())
+}
+
+/// Dựng thông số kết nối; nếu đi qua SSH thì mở tunnel (cổng local ngẫu nhiên)
+/// và trả kèm handle để huỷ tunnel khi phiên đóng.
+async fn db_connect_spec(
+    pool: &SqlitePool,
+    c: &db::DbConnection,
+    password: String,
+) -> R<(crate::dbclient::ConnectSpec, Option<tokio::task::AbortHandle>)> {
+    let mut spec = crate::dbclient::ConnectSpec {
+        kind: c.kind.clone(),
+        host: c.host.clone(),
+        port: c.port as u16,
+        tls_host: c.host.clone(),
+        username: c.username.clone(),
+        password,
+        database: c.database.clone(),
+        ssl_mode: c.ssl_mode.clone(),
+        read_only: c.read_only,
+    };
+    let mut tunnel = None;
+    if let Some(host_id) = c.ssh_host_id.as_deref().filter(|h| !h.is_empty()) {
+        let host = db::get_host(pool, host_id).await.map_err(e)?;
+        let ssh = resolve_connect(pool, &host, false).await?;
+        let (port, abort) = crate::tunnel::forward_ephemeral(ssh, c.host.clone(), c.port as u16)
+            .await
+            .map_err(e)?;
+        spec.host = "127.0.0.1".into();
+        spec.port = port;
+        tunnel = Some(abort);
+    }
+    Ok((spec, tunnel))
+}
+
+/// Thử kết nối với thông số đang nhập trong form (chưa lưu). Mật khẩu để trống khi
+/// sửa → dùng mật khẩu đã lưu. Trả về phiên bản server.
+#[tauri::command]
+pub async fn db_test(state: State<'_, AppState>, input: db::DbConnectionInput) -> R<String> {
+    let password = match input.password.clone().filter(|p| !p.is_empty()) {
+        Some(p) => p,
+        None => match &input.id {
+            Some(id) => keychain::get_secret(&keychain::db_password(id)).map_err(e)?.unwrap_or_default(),
+            None => String::new(),
+        },
+    };
+    let c = db::DbConnection {
+        id: input.id.clone().unwrap_or_default(),
+        name: input.name.clone(),
+        kind: input.kind.clone(),
+        host: input.host.clone(),
+        port: input.port,
+        username: input.username.clone(),
+        database: input.database.clone(),
+        ssh_host_id: input.ssh_host_id.clone(),
+        ssl_mode: input.ssl_mode.clone(),
+        read_only: input.read_only,
+        options: input.options.clone(),
+        created_at: 0,
+        updated_at: 0,
+    };
+    let (spec, tunnel) = db_connect_spec(&state.db, &c, password).await?;
+    let res = crate::dbclient::test(&spec).await;
+    if let Some(t) = tunnel {
+        t.abort();
+    }
+    res.map_err(e)
+}
+
+#[tauri::command]
+pub async fn db_open(state: State<'_, AppState>, conn_id: String) -> R<crate::dbclient::SessionInfo> {
+    let c = db::get_db_connection(&state.db, &conn_id).await.map_err(e)?;
+    let password = keychain::get_secret(&keychain::db_password(&conn_id)).map_err(e)?.unwrap_or_default();
+    let (spec, tunnel) = db_connect_spec(&state.db, &c, password).await?;
+    state.dbc.open(spec, tunnel).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn db_close(state: State<'_, AppState>, session_id: String) -> R<()> {
+    state.dbc.close(&session_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn db_tree(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: Vec<String>,
+) -> R<Vec<crate::dbclient::TreeNode>> {
+    state.dbc.tree(&session_id, &path).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn db_query(
+    state: State<'_, AppState>,
+    session_id: String,
+    database: Option<String>,
+    sql: String,
+    limit: Option<u32>,
+) -> R<crate::dbclient::QueryOutput> {
+    let limit = limit.unwrap_or(1000).clamp(1, 100_000) as usize;
+    state.dbc.query(&session_id, database, &sql, limit).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn db_cancel(state: State<'_, AppState>, session_id: String) -> R<()> {
+    state.dbc.cancel(&session_id).await.map_err(e)
+}

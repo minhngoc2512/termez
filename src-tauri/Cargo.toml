@@ -37,6 +37,13 @@ async-stream = "0.3"
 bytes = "1"
 walkdir = "2"
 totp-rs = { version = "6.0.0", default-features = false, features = ["std", "gen_secret", "otpauth", "migration"] }
+# DB client (Databases): driver thuần Rust, TLS dùng rustls + `ring` (KHÔNG aws-lc — máy build thiếu nasm).
+mysql_async = { version = "0.37", default-features = false, features = ["default-rustls-ring"] }
+tokio-postgres = "0.7"
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+futures-util = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Lưu ý: import KeePass (.kdbx) chạy qua sidecar riêng (sidecar/kdbx-import) vì
 # crate `keepass` 0.14 dùng thế hệ RustCrypto cũ, xung đột với russh 0.63.

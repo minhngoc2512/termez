@@ -186,3 +186,27 @@ async fn socks5_handshake(sock: &mut TcpStream) -> anyhow::Result<(String, u16)>
     sock.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
     Ok((host, port))
 }
+
+/// Forward tạm cho một phiên (vd database): nghe 127.0.0.1 trên cổng NGẪU NHIÊN,
+/// mỗi kết nối vào được đẩy qua direct-tcpip tới `rhost:rport` (tính từ phía server
+/// SSH). Trả về cổng local + AbortHandle (abort = đóng listener; SSH đóng khi các
+/// kết nối con kết thúc vì chúng giữ `Arc<Connection>`).
+pub async fn forward_ephemeral(
+    conn: Connection,
+    rhost: String,
+    rport: u16,
+) -> anyhow::Result<(u16, AbortHandle)> {
+    let conn = Arc::new(conn);
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let task = tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            let conn = conn.clone();
+            let rhost = rhost.clone();
+            tokio::spawn(async move {
+                let _ = handle_conn(conn, "local", Some(rhost), Some(rport), sock).await;
+            });
+        }
+    });
+    Ok((port, task.abort_handle()))
+}
