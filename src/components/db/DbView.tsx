@@ -33,6 +33,7 @@ const KIND_LABEL: Record<DbKind, string> = {
   clickhouse: "ClickHouse",
   redis: "Redis",
   mongodb: "MongoDB",
+  bigquery: "BigQuery",
 };
 
 
@@ -157,8 +158,9 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
 
   async function dropDatabase(name: string) {
     const stmt = ddl.dropDatabase(d, name);
-    const label = d === "redis" ? `Flush ${name}` : `Drop database ${name}`;
-    if (!(await confirmTyped(`${label}?`, d === "redis" ? `${stmt}   (deletes every key in ${name})` : stmt, name, d === "redis" ? "Flush" : "Drop"))) return;
+    const label = d === "redis" ? `Flush ${name}` : d === "bigquery" ? `Drop dataset ${name}` : `Drop database ${name}`;
+    const note = d === "redis" ? `   (deletes every key in ${name})` : d === "bigquery" ? "\n\nCASCADE deletes every table in the dataset." : "";
+    if (!(await confirmTyped(`${label}?`, stmt + note, name, d === "redis" ? "Flush" : "Drop"))) return;
     const home = pane?.session?.database ?? null;
     // Câu lệnh chạy ở đâu: MongoDB/Redis trong chính database đó; PostgreSQL phải từ
     // database khác; ClickHouse từ "system".
@@ -217,7 +219,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           d === "postgres"
             ? { label: "New schema…", run: () => setDdlReq({ type: "createSchema", database: n.name }), separator: true }
             : { label: `New ${tableWord}…`, run: () => setDdlReq({ type: "createTable", base: path }), separator: true },
-          { label: "Drop database…", run: () => dropDatabase(n.name), danger: true },
+          { label: d === "bigquery" ? "Drop dataset…" : "Drop database…", run: () => dropDatabase(n.name), danger: true },
         ];
       case "schema":
         return [
@@ -291,7 +293,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           void run(false, sql, path[0]);
         },
       });
-      if (n.kind === "table") items.push({ label: "Indexes…", run: () => setDdlReq({ type: "indexes", path }) });
+      if (n.kind === "table" && d !== "bigquery") items.push({ label: "Indexes…", run: () => setDdlReq({ type: "indexes", path }) });
       items.push({ label: "Copy qualified name", run: () => copyText(q).catch(() => {}) });
     }
     if (n.kind === "column")
@@ -369,6 +371,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           onOpenNode={openNode}
           menuFor={menuFor}
           onNewDatabase={pane.session?.read_only || d === "redis" ? undefined : () => setDdlReq({ type: "createDatabase" })}
+          newDatabaseLabel={d === "bigquery" ? "New dataset" : undefined}
         />
       </div>
       <div className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40" onMouseDown={dragTree} />

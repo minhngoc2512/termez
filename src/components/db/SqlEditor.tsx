@@ -84,7 +84,7 @@ function language(d: Dialect, schema: Record<string, string[]>): Extension {
 async function formatSql(text: string, d: Dialect): Promise<string> {
   const { format } = await import("sql-formatter");
   return format(text, {
-    language: d === "postgres" ? "postgresql" : d === "clickhouse" ? "clickhouse" : "mysql",
+    language: d === "postgres" ? "postgresql" : d === "clickhouse" ? "clickhouse" : d === "bigquery" ? "bigquery" : "mysql",
     keywordCase: "upper",
     tabWidth: 2,
     linesBetweenQueries: 1,

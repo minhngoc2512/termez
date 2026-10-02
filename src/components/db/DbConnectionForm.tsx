@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, PlugZap, ChevronDown, ShieldCheck, FolderPlus } from "lucide-react";
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle, PlugZap, ChevronDown, ShieldCheck, FolderPlus, FileUp } from "lucide-react";
 import { api, DbConnection, DbConnectionInput, DbGroup, DbKind, DbSslMode } from "../../lib/ipc";
 import { promptDialog, alertDialog } from "../../lib/dialogs";
 import { useStore } from "../../store";
@@ -18,6 +18,7 @@ export const DB_KINDS: { id: DbKind; label: string; port: number; user: string }
   { id: "postgres", label: "PostgreSQL", port: 5432, user: "postgres" },
   { id: "clickhouse", label: "ClickHouse", port: 8123, user: "default" },
   { id: "mongodb", label: "MongoDB", port: 27017, user: "" },
+  { id: "bigquery", label: "BigQuery", port: 443, user: "" },
   { id: "redis", label: "Redis", port: 6379, user: "" },
 ];
 
@@ -34,6 +35,11 @@ const NONE = "__none__";
 interface MongoOptions {
   authSource?: string;
   uri?: string;
+  // BigQuery
+  project?: string;
+  location?: string;
+  auth?: "adc" | "key";
+  maxBytesBilledGb?: string;
 }
 
 function parseOptions(raw: string | null | undefined): MongoOptions {
@@ -57,9 +63,9 @@ function uriHost(uri: string): string {
   return uri.replace(/^mongodb(\+srv)?:\/\/([^@/]*@)?/i, "").split(/[/?]/)[0] || "mongodb";
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="space-y-1">
+    <div className={cn("space-y-1", className)}>
       <label className="text-xs text-muted-foreground">{label}</label>
       {children}
     </div>
@@ -94,6 +100,13 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   const [authSource, setAuthSource] = useState("");
   const [uri, setUri] = useState("");
   const [useUri, setUseUri] = useState(false);
+  // BigQuery
+  const [project, setProject] = useState("");
+  const [location, setLocation] = useState("");
+  const [bqAuth, setBqAuth] = useState<"adc" | "key">("adc");
+  const [keyJson, setKeyJson] = useState("");
+  const [maxGb, setMaxGb] = useState("");
+  const keyFile = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
@@ -117,6 +130,11 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
     setAuthSource(o.authSource ?? "");
     setUri(o.uri ?? "");
     setUseUri(!!o.uri);
+    setProject(o.project ?? "");
+    setLocation(o.location ?? "");
+    setBqAuth(o.auth === "key" ? "key" : "adc");
+    setKeyJson("");
+    setMaxGb(o.maxBytesBilledGb ?? "");
     setError(null);
     setTestMsg(null);
   }, [open, conn, defaultGroupId]);
@@ -135,6 +153,23 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   }
 
   const mongoUri = kind === "mongodb" && useUri;
+  const bq = kind === "bigquery";
+
+  /** Đọc file key JSON của service account; lấy luôn project nếu chưa nhập. */
+  function loadKeyFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    void f.text().then((text) => {
+      setKeyJson(text);
+      try {
+        const pid = (JSON.parse(text) as { project_id?: string }).project_id;
+        if (pid && !project.trim()) setProject(pid);
+      } catch {
+        /* JSON lỗi — backend sẽ báo khi thử kết nối */
+      }
+    });
+  }
 
   function buildInput(): DbConnectionInput {
     const label = DB_KINDS.find((x) => x.id === kind)!.label;
@@ -153,17 +188,29 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
       }
       options = JSON.stringify(o);
     }
+    if (bq) {
+      const o: MongoOptions = {
+        project: project.trim() || undefined,
+        location: location.trim() || undefined,
+        auth: bqAuth,
+        maxBytesBilledGb: maxGb.trim() || undefined,
+      };
+      options = JSON.stringify(o);
+      user = "";
+      pw = bqAuth === "key" ? keyJson.trim() || null : null;
+      h = "bigquery.googleapis.com";
+    }
     return {
       id: conn?.id ?? null,
-      name: name.trim() || `${label} ${h}`,
+      name: name.trim() || `${label} ${bq ? project.trim() || "" : h}`.trim(),
       kind,
       host: h,
-      port: Number(port) || DB_KINDS.find((x) => x.id === kind)!.port,
+      port: bq ? 443 : Number(port) || DB_KINDS.find((x) => x.id === kind)!.port,
       username: user,
       password: pw,
       database: database.trim() || null,
-      ssh_host_id: mongoUri ? null : sshHostId,
-      ssl_mode: sslMode,
+      ssh_host_id: mongoUri || bq ? null : sshHostId,
+      ssl_mode: bq ? "require" : sslMode,
       read_only: readOnly,
       options,
       group_id: groupId,
@@ -194,7 +241,9 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   }
 
   async function save() {
-    if (mongoUri ? !uri.trim() : !host.trim() || (!userOptional && !username.trim())) {
+    if (bq) {
+      if (bqAuth === "key" && !conn && !keyJson.trim()) return setError("Paste or load the service account key.");
+    } else if (mongoUri ? !uri.trim() : !host.trim() || (!userOptional && !username.trim())) {
       setError(mongoUri ? "Connection string is required." : userOptional ? "Host is required." : "Host and user are required.");
       return;
     }
@@ -227,8 +276,12 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
   // Redis / MongoDB có thể không bật xác thực.
   const userOptional = kind === "redis" || kind === "mongodb";
   // Đủ thông tin để thử kết nối (lấy danh sách database).
-  const canConnect = mongoUri ? !!uri.trim() : !!host.trim() && (userOptional || !!username.trim());
-  const connKey = JSON.stringify([kind, host.trim(), port, username.trim(), password, sshHostId, sslMode, authSource, mongoUri && uri]);
+  const canConnect = bq
+    ? bqAuth === "adc" || !!keyJson.trim() || !!conn
+    : mongoUri
+      ? !!uri.trim()
+      : !!host.trim() && (userOptional || !!username.trim());
+  const connKey = JSON.stringify([kind, host.trim(), port, username.trim(), password, sshHostId, sslMode, authSource, mongoUri && uri, project, bqAuth, keyJson, location]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -294,6 +347,8 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
               <div className="mt-0.5 text-xs text-muted-foreground">
                 {kind === "redis"
                   ? "Blocks every command the server flags as a write (SET, DEL, HSET, FLUSHDB…)."
+                  : bq
+                  ? "Only SELECT queries run — BigQuery dry-runs each statement first to confirm it doesn't write."
                   : kind === "mongodb"
                   ? "Blocks inserts, updates, deletes, drops, index changes, aggregate with $out/$merge and any runCommand that isn't a read."
                   : "Blocks INSERT, UPDATE, DELETE, DDL (CREATE/ALTER/DROP/TRUNCATE) and SET — only SELECT, SHOW, DESCRIBE and EXPLAIN run. The server session is read-only too."}
@@ -322,6 +377,67 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
             </div>
           )}
 
+          {bq ? (
+            <>
+              <div className="flex gap-3">
+                <Field label="Project ID" className="flex-[3]">
+                  <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="my-project (default: from the credentials)" />
+                </Field>
+                <Field label="Location (optional)" className="flex-[2]">
+                  <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="US, EU, asia-southeast1…" />
+                </Field>
+              </div>
+              <Field label="Authentication">
+                <div className="flex gap-1 rounded-lg bg-muted p-1 text-sm">
+                  {([
+                    { v: "adc", label: "gcloud / Application Default" },
+                    { v: "key", label: "Service account key" },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => setBqAuth(o.v)}
+                      className={cn(
+                        "flex-1 rounded-md px-3 py-1 transition-colors",
+                        bqAuth === o.v ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              {bqAuth === "adc" ? (
+                <p className="-mt-1 text-xs text-muted-foreground">
+                  Uses <code className="rounded bg-muted px-1">gcloud auth application-default login</code>, the file in
+                  GOOGLE_APPLICATION_CREDENTIALS, or the metadata server on Google Cloud machines. Nothing is stored here.
+                </p>
+              ) : (
+                <Field label="Service account key (JSON)">
+                  <textarea
+                    value={keyJson}
+                    onChange={(e) => setKeyJson(e.target.value)}
+                    rows={4}
+                    spellCheck={false}
+                    placeholder={conn ? "(unchanged — paste or load a new key to replace it)" : '{ "type": "service_account", "project_id": "…", "private_key": "…", … }'}
+                    className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  />
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">🔒 Stored in the OS keychain, not in the database.</p>
+                    <Button type="button" size="sm" variant="outline" onClick={() => keyFile.current?.click()}>
+                      <FileUp className="size-4" /> Load JSON file…
+                    </Button>
+                    <input ref={keyFile} type="file" accept=".json,application/json" className="hidden" onChange={loadKeyFile} />
+                  </div>
+                </Field>
+              )}
+              <Field label="Max bytes billed per query (GB, optional)">
+                <Input type="number" min={0} step="any" value={maxGb} onChange={(e) => setMaxGb(e.target.value)} placeholder="no limit" />
+                <p className="text-xs text-muted-foreground">Queries that would scan more are rejected before they run — nothing is billed.</p>
+              </Field>
+            </>
+          ) : (
+          <>
           {mongoUri ? (
             <Field label="Connection string">
               <Input
@@ -397,12 +513,16 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
             </div>
           </div>
           <p className="-mt-1 text-xs text-muted-foreground">🔒 Password is stored in the OS keychain, not in the database.</p>
+          </>
+          )}
 
           <Field
             label={
               kind === "postgres"
                 ? "Database (default: postgres)"
-                : kind === "redis"
+                : bq
+                  ? "Default dataset (optional)"
+                  : kind === "redis"
                   ? "Database index (0–15)"
                   : "Default database (optional)"
             }
@@ -423,7 +543,7 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
             </Field>
           )}
 
-          {!mongoUri && (
+          {!mongoUri && !bq && (
           <Field label="TLS / SSL">
             <Select value={sslMode} onValueChange={(v) => setSslMode(v as DbSslMode)}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>

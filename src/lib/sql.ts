@@ -3,10 +3,10 @@
 // với chuỗi, định danh có nháy và comment.
 import type { DbKind, DbResultSet } from "./ipc";
 
-export type Dialect = "mysql" | "postgres" | "clickhouse" | "redis" | "mongodb";
+export type Dialect = "mysql" | "postgres" | "clickhouse" | "redis" | "mongodb" | "bigquery";
 
 export function dialectOf(kind: DbKind): Dialect {
-  if (kind === "postgres" || kind === "clickhouse" || kind === "redis" || kind === "mongodb") return kind;
+  if (kind === "postgres" || kind === "clickhouse" || kind === "redis" || kind === "mongodb" || kind === "bigquery") return kind;
   return "mysql";
 }
 
@@ -51,12 +51,12 @@ export function splitStatements(sql: string, d: Dialect): Statement[] {
     const next = sql[i + 1];
     if (c === "-" && next === "-") {
       i = lineEnd(sql, i);
-    } else if (c === "#" && d === "mysql") {
+    } else if (c === "#" && (d === "mysql" || d === "bigquery")) {
       i = lineEnd(sql, i);
     } else if (c === "/" && next === "*") {
       const e = sql.indexOf("*/", i + 2);
       i = e < 0 ? n : e + 2;
-    } else if (c === "'" || c === '"' || (c === "`" && d === "mysql")) {
+    } else if (c === "'" || c === '"' || (c === "`" && (d === "mysql" || d === "bigquery"))) {
       i = quoteEnd(sql, i, c);
     } else if (c === "$" && d === "postgres") {
       const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
@@ -203,5 +203,6 @@ export function toJson(rs: DbResultSet): string {
 /** Cột trông như số (căn phải trong lưới). */
 export function isNumericType(t: string | null): boolean {
   // MySQL: "long", "newdecimal"… · ClickHouse: "UInt64", "Nullable(Float64)", "Decimal(10, 2)"…
-  return !!t && /^((nullable|lowcardinality)\()*(tiny|short|long|u?int|int24|float|double|decimal|newdecimal|year)/i.test(t);
+  // BigQuery: "INTEGER", "INT64", "FLOAT64", "NUMERIC", "BIGNUMERIC".
+  return !!t && /^((nullable|lowcardinality)\()*(tiny|short|long|u?int|int24|float|double|decimal|newdecimal|year|numeric|bignumeric)/i.test(t);
 }

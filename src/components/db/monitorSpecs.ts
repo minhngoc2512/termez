@@ -387,6 +387,61 @@ export const SPECS: Record<string, KindSpec> = {
     breakdownTitle: "Disk usage by database",
     breakdownUnit: "bytes",
   },
+
+  // BigQuery không có bộ đếm của server: số job hiện tại + thống kê job 10 phút gần nhất.
+  bigquery: {
+    derive: (_prev, cur) => ({
+      running: cur.running ?? 0,
+      pending: cur.pending ?? 0,
+      done: cur.done_10m ?? 0,
+      failed: cur.failed_10m ?? 0,
+      bytes: cur.bytes_10m ?? 0,
+      billed: cur.billed_10m ?? 0,
+      slotSec: (cur.slot_ms_10m ?? 0) / 1000,
+    }),
+    cards: [
+      {
+        title: "Jobs now",
+        icon: Activity,
+        series: [
+          { key: "running", label: "running", color: GREEN },
+          { key: "pending", label: "pending", color: AMBER },
+        ],
+        value: (d) => `${fmtNum(d.running)} running`,
+        sub: (d) => `${fmtNum(d.pending)} pending`,
+      },
+      {
+        title: "Finished · last 10 min",
+        icon: Rows3,
+        series: [
+          { key: "done", label: "finished", color: CYAN },
+          { key: "failed", label: "failed", color: RED },
+        ],
+        value: (d) => fmtNum(d.done),
+        sub: (d) => `${fmtNum(d.failed)} failed`,
+      },
+      {
+        title: "Bytes processed · last 10 min",
+        icon: ArrowDownUp,
+        series: [
+          { key: "bytes", label: "processed", color: FUCHSIA },
+          { key: "billed", label: "billed", color: AMBER },
+        ],
+        value: (d) => fmtBytes(d.bytes),
+        // Giá on-demand công bố: $6.25 / TiB.
+        sub: (d) => `billed ${fmtBytes(d.billed)} ≈ $${((d.billed / 2 ** 40) * 6.25).toFixed(d.billed ? 4 : 0)} on-demand`,
+      },
+      {
+        title: "Slot time · last 10 min",
+        icon: Gauge,
+        series: [{ key: "slotSec", label: "slot-seconds", color: GREEN }],
+        value: (d) => `${fmtNum(d.slotSec)} slot·s`,
+      },
+    ],
+    uptime: () => undefined,
+    breakdownTitle: "Storage by dataset (logical)",
+    breakdownUnit: "bytes",
+  },
 };
 
 SPECS.mariadb = SPECS.mysql;

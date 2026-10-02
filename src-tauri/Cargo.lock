@@ -4375,6 +4375,7 @@ dependencies = [
  "rand 0.8.8",
  "redis",
  "reqwest",
+ "ring",
  "russh",
  "russh-sftp",
  "rustls",

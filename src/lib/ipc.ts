@@ -271,7 +271,7 @@ export interface DbTableSizes {
   rows_exact: boolean;
 }
 
-export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb";
+export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb" | "bigquery";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
 export interface DbConnection {

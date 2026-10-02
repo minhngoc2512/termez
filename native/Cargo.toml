@@ -47,6 +47,8 @@ webpki-roots = "1"
 futures-util = "0.3"
 # MongoDB: driver chính thức (TLS rustls + ring; dns-resolver cho mongodb+srv://).
 mongodb = "3"
+# BigQuery: ký JWT RS256 của service account (ring đã có sẵn qua rustls).
+ring = "0.17"
 redis = { version = "1", default-features = false, features = ["tokio-comp", "tokio-rustls-comp", "tls-rustls-insecure", "tls-rustls-webpki-roots"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 

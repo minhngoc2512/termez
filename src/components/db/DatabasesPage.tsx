@@ -23,6 +23,15 @@ function loadCollapsed(): Record<string, boolean> {
 }
 
 /** Trang Databases: kết nối đã lưu, xếp theo nhóm; click để mở trong một task mới. */
+/** Project của kết nối BigQuery (lưu trong options). */
+function bqProject(options: string | null): string {
+  try {
+    return (JSON.parse(options || "{}") as { project?: string }).project ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection) => void; onMonitor: (c: DbConnection) => void }) {
   const hosts = useStore((s) => s.hosts);
   const [conns, setConns] = useState<DbConnection[]>([]);
@@ -171,8 +180,15 @@ export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection)
             )}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            {label} · {c.username ? `${c.username}@` : ""}
-            {c.host}:{c.port}
+            {label} ·{" "}
+            {c.kind === "bigquery" ? (
+              bqProject(c.options) || "(project from credentials)"
+            ) : (
+              <>
+                {c.username ? `${c.username}@` : ""}
+                {c.host}:{c.port}
+              </>
+            )}
             {c.database ? `/${c.database}` : ""}
           </div>
           {via ? (
@@ -244,7 +260,7 @@ export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection)
             <Database className="size-10 opacity-40" />
             <p>No database connections yet.</p>
             <p className="max-w-md text-center text-xs">
-              MySQL, MariaDB, PostgreSQL, ClickHouse, MongoDB and Redis — directly or through an SSH tunnel over any of your hosts.
+              MySQL, MariaDB, PostgreSQL, ClickHouse, MongoDB, Redis and BigQuery — directly or through an SSH tunnel over any of your hosts.
             </p>
             <Button size="sm" onClick={() => newConnection(null)}>
               <Plus className="size-4" /> Add your first connection

@@ -78,6 +78,7 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
   const [name, setName] = useState("");
   const [charset, setCharset] = useState("utf8mb4");
   const [coll, setColl] = useState("");
+  const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,6 +86,7 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
     if (!open) return;
     setName("");
     setColl("");
+    setLocation("");
     setError(null);
   }, [open]);
 
@@ -98,7 +100,7 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
         ? coll.trim()
           ? ddl.createCollection(coll.trim())
           : ""
-        : ddl.createDatabase(d, n, { charset: d === "mysql" ? charset : undefined });
+        : ddl.createDatabase(d, n, { charset: d === "mysql" ? charset : undefined, location: d === "bigquery" ? location : undefined });
   const database = schema ?? (d === "mongodb" ? n : null);
 
   async function create() {
@@ -114,10 +116,10 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{schema !== null ? `New schema in ${schema}` : "New database"}</DialogTitle>
+          <DialogTitle>{schema !== null ? `New schema in ${schema}` : d === "bigquery" ? "New dataset" : "New database"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <Field label={schema !== null ? "Schema name" : "Database name"}>
+          <Field label={schema !== null ? "Schema name" : d === "bigquery" ? "Dataset name" : "Database name"}>
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sql && create()} />
           </Field>
           {d === "mysql" && schema === null && (
@@ -131,6 +133,11 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
                   ))}
                 </SelectContent>
               </Select>
+            </Field>
+          )}
+          {d === "bigquery" && (
+            <Field label="Location (optional — default: the project's default)">
+              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="US, EU, asia-southeast1…" />
             </Field>
           )}
           {d === "mongodb" && (
@@ -162,8 +169,8 @@ function CreateDatabaseDialog({ panelId, d, req, onClose, onOpenInEditor, open }
 const emptyCol = (): ddl.ColumnDef => ({ name: "", type: "", notNull: false, pk: false, def: "" });
 
 function firstCols(d: Dialect): ddl.ColumnDef[] {
-  const id: Record<string, string> = { mysql: "BIGINT AUTO_INCREMENT", postgres: "bigserial", clickhouse: "UInt64" };
-  const text: Record<string, string> = { mysql: "VARCHAR(255)", postgres: "text", clickhouse: "String" };
+  const id: Record<string, string> = { mysql: "BIGINT AUTO_INCREMENT", postgres: "bigserial", clickhouse: "UInt64", bigquery: "INT64" };
+  const text: Record<string, string> = { mysql: "VARCHAR(255)", postgres: "text", clickhouse: "String", bigquery: "STRING" };
   return [
     { name: "id", type: id[d] ?? "", notNull: true, pk: true, def: "" },
     { name: "name", type: text[d] ?? "", notNull: false, pk: false, def: "" },

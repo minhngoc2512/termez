@@ -4,7 +4,9 @@
 //! đóng. Nếu kết nối đi qua SSH, phiên giữ luôn tunnel (cổng local ngẫu nhiên) và
 //! driver kết nối vào 127.0.0.1:<cổng đó>; TLS vẫn kiểm tra theo tên host thật.
 
+mod bigquery;
 mod clickhouse;
+mod gauth;
 mod mongo;
 mod mongo_shell;
 mod mysql;
@@ -25,7 +27,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Thông số kết nối đã resolve (mật khẩu lấy từ keychain, tunnel đã mở nếu có).
 #[derive(Clone)]
 pub struct ConnectSpec {
-    /// "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb"
+    /// "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis" | "mongodb" | "bigquery"
     pub kind: String,
     /// Địa chỉ driver kết nối thật (127.0.0.1 khi đi qua tunnel).
     pub host: String,
@@ -147,6 +149,7 @@ enum Backend {
     ClickHouse(clickhouse::ChSession),
     Redis(redis::RedisSession),
     Mongo(mongo::MongoSession),
+    BigQuery(bigquery::BqSession),
 }
 
 struct Session {
@@ -186,6 +189,10 @@ async fn connect(spec: &ConnectSpec) -> anyhow::Result<(Backend, String)> {
                 let (s, v) = mongo::MongoSession::connect(spec).await?;
                 Ok((Backend::Mongo(s), v))
             }
+            "bigquery" => {
+                let (s, v) = bigquery::BqSession::connect(spec).await?;
+                Ok((Backend::BigQuery(s), v))
+            }
             other => anyhow::bail!("Loại database chưa hỗ trợ: {other}"),
         }
     };
@@ -203,6 +210,7 @@ pub async fn list_databases(spec: &ConnectSpec) -> anyhow::Result<Vec<String>> {
         Backend::ClickHouse(s) => s.tree(&[]).await?,
         Backend::Redis(s) => s.tree(&[]).await?,
         Backend::Mongo(s) => s.tree(&[]).await?,
+        Backend::BigQuery(s) => s.tree(&[]).await?,
     };
     Ok(nodes
         .into_iter()
@@ -250,6 +258,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.default_database(),
             Backend::Redis(s) => Some(s.default_database()),
             Backend::Mongo(s) => s.default_database().or(s.current_database().await),
+            Backend::BigQuery(s) => s.default_database(),
         };
         self.sessions
             .lock()
@@ -294,6 +303,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.tree(path).await,
             Backend::Redis(s) => s.tree(path).await,
             Backend::Mongo(s) => s.tree(path).await,
+            Backend::BigQuery(s) => s.tree(path).await,
         }
     }
 
@@ -318,6 +328,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.query(database, sql, limit).await?,
             Backend::Redis(s) => s.query(database, sql, limit).await?,
             Backend::Mongo(s) => s.query(database, sql, limit).await?,
+            Backend::BigQuery(s) => s.query(database, sql, limit).await?,
         };
         Ok(QueryOutput { results, elapsed_ms: started.elapsed().as_millis() as u64, database })
     }
@@ -330,6 +341,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.monitor(breakdown).await,
             Backend::Redis(s) => s.monitor(breakdown).await,
             Backend::Mongo(s) => s.monitor(breakdown).await,
+            Backend::BigQuery(s) => s.monitor(breakdown).await,
         }
     }
 
@@ -341,6 +353,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.table_sizes(database).await,
             Backend::Redis(_) => anyhow::bail!("Redis has no tables"),
             Backend::Mongo(s) => s.table_sizes(database).await,
+            Backend::BigQuery(s) => s.table_sizes(database).await,
         }
     }
 
@@ -357,6 +370,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.kill(target).await,
             Backend::Redis(s) => s.kill(target).await,
             Backend::Mongo(s) => s.kill(target).await,
+            Backend::BigQuery(s) => s.kill(target).await,
         }
     }
 
@@ -368,6 +382,7 @@ impl DbManager {
             Backend::ClickHouse(s) => s.cancel().await,
             Backend::Redis(s) => s.cancel().await,
             Backend::Mongo(s) => s.cancel().await,
+            Backend::BigQuery(s) => s.cancel().await,
         }
     }
 }

@@ -28,6 +28,7 @@ export interface IndexInfo {
 export const COLUMN_TYPES: Record<string, string[]> = {
   mysql: ["INT", "BIGINT", "INT AUTO_INCREMENT", "BIGINT AUTO_INCREMENT", "VARCHAR(255)", "TEXT", "BOOLEAN", "DECIMAL(10,2)", "DOUBLE", "DATE", "DATETIME", "TIMESTAMP", "JSON", "BLOB"],
   postgres: ["integer", "bigint", "serial", "bigserial", "text", "varchar(255)", "boolean", "numeric(10,2)", "double precision", "date", "timestamp", "timestamptz", "jsonb", "uuid", "bytea"],
+  bigquery: ["INT64", "STRING", "BOOL", "FLOAT64", "NUMERIC", "BIGNUMERIC", "DATE", "DATETIME", "TIMESTAMP", "TIME", "JSON", "BYTES", "GEOGRAPHY", "ARRAY<STRING>", "STRUCT<a INT64, b STRING>"],
   clickhouse: ["UInt32", "UInt64", "Int32", "Int64", "String", "LowCardinality(String)", "Bool", "Float64", "Decimal(18,2)", "Date", "DateTime", "DateTime64(3)", "UUID", "Array(String)", "Map(String, String)"],
 };
 
@@ -50,7 +51,11 @@ export function mongoColl(name: string): string {
     : `db.getCollection(${JSON.stringify(name)})`;
 }
 
-export function createDatabase(d: Dialect, name: string, opts: { charset?: string } = {}): string {
+export function createDatabase(d: Dialect, name: string, opts: { charset?: string; location?: string } = {}): string {
+  if (d === "bigquery") {
+    const loc = opts.location?.trim();
+    return `CREATE SCHEMA ${quoteIdent(name, d)}${loc ? ` OPTIONS (location = ${sqlString(loc)})` : ""};`;
+  }
   if (d === "mysql") {
     const cs = opts.charset?.trim();
     return `CREATE DATABASE ${quoteIdent(name, d)}${cs ? ` CHARACTER SET ${cs}` : ""};`;
@@ -61,6 +66,8 @@ export function createDatabase(d: Dialect, name: string, opts: { charset?: strin
 export function dropDatabase(d: Dialect, name: string): string {
   if (d === "mongodb") return "db.dropDatabase()";
   if (d === "redis") return "FLUSHDB";
+  // BigQuery: dataset = schema; không CASCADE thì chỉ xoá được dataset rỗng.
+  if (d === "bigquery") return `DROP SCHEMA ${quoteIdent(name, d)} CASCADE;`;
   return `DROP DATABASE ${quoteIdent(name, d)};`;
 }
 
@@ -85,7 +92,8 @@ export function createTable(d: Dialect, path: string[], cols: ColumnDef[], opts:
     }
     return `  ${n} ${t}${c.notNull || c.pk ? " NOT NULL" : ""}${c.def.trim() ? ` DEFAULT ${c.def.trim()}` : ""}`;
   });
-  if (d !== "clickhouse" && pk.length) lines.push(`  PRIMARY KEY (${pk.join(", ")})`);
+  // BigQuery: khoá chính chỉ là metadata cho optimizer, bắt buộc ghi NOT ENFORCED.
+  if (d !== "clickhouse" && pk.length) lines.push(`  PRIMARY KEY (${pk.join(", ")})${d === "bigquery" ? " NOT ENFORCED" : ""}`);
   let sql = `CREATE TABLE ${table(path, d)} (\n${lines.join(",\n")}\n)`;
   if (d === "clickhouse") {
     const order = opts.orderBy?.trim() || (pk.length ? `(${pk.join(", ")})` : "tuple()");
