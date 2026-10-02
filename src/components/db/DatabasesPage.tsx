@@ -6,16 +6,9 @@ import { api, DbConnection, DbGroup } from "../../lib/ipc";
 import { confirmDialog, alertDialog, promptDialog } from "../../lib/dialogs";
 import { useStore } from "../../store";
 import { DbConnectionForm, DB_KINDS } from "./DbConnectionForm";
+import { DbIcon, dbColor } from "./DbIcon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const KIND_COLOR: Record<string, string> = {
-  mysql: "bg-amber-500/15 text-amber-500",
-  mariadb: "bg-amber-500/15 text-amber-500",
-  postgres: "bg-sky-500/15 text-sky-500",
-  clickhouse: "bg-yellow-400/15 text-yellow-500",
-  redis: "bg-red-500/15 text-red-500",
-};
 
 const DRAG_TYPE = "termez/dbconn";
 const UNGROUPED = "__ungrouped__";
@@ -161,8 +154,12 @@ export function DatabasesPage({ onOpen }: { onOpen: (c: DbConnection) => void })
         onClick={() => onOpen(c)}
         className="group relative flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-primary/60 hover:bg-accent"
       >
-        <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", KIND_COLOR[c.kind])} title={label}>
-          <Database className="size-5" />
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-lg"
+          style={{ backgroundColor: `color-mix(in srgb, ${dbColor(c.kind)} 15%, transparent)` }}
+          title={label}
+        >
+          <DbIcon kind={c.kind} className="size-6" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 truncate font-medium">

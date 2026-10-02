@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CopyableError } from "./CopyableError";
+import { DbIcon } from "./DbIcon";
 import { cn } from "@/lib/utils";
 
 export const DB_KINDS: { id: DbKind; label: string; port: number; user: string }[] = [
@@ -180,7 +181,10 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {DB_KINDS.map((k) => (
-                      <SelectItem key={k.id} value={k.id}>{k.label}</SelectItem>
+                      <SelectItem key={k.id} value={k.id}>
+                        <DbIcon kind={k.id} className="size-4" />
+                        {k.label}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

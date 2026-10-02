@@ -9,6 +9,7 @@ import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 import { ResultGrid } from "./ResultGrid";
 import { SchemaTree, TreeMenuAction } from "./SchemaTree";
 import { CopyableError } from "./CopyableError";
+import { DbIcon } from "./DbIcon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -312,9 +313,10 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
             </span>
           )}
           <span
-            className={cn("truncate text-xs text-muted-foreground", !pane.session?.read_only && "ml-auto")}
+            className={cn("flex items-center gap-1.5 truncate text-xs text-muted-foreground", !pane.session?.read_only && "ml-auto")}
             title={pane.session?.server_version}
           >
+            <DbIcon kind={kind} className="size-3.5 shrink-0" />
             {KIND_LABEL[kind]} {pane.session?.server_version}
           </span>
         </div>
