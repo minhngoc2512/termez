@@ -5,6 +5,7 @@ import {
 import { api, DbConnection, DbGroup } from "../../lib/ipc";
 import { confirmDialog, alertDialog, promptDialog } from "../../lib/dialogs";
 import { useStore } from "../../store";
+import { listen } from "@tauri-apps/api/event";
 import { DbConnectionForm, DB_KINDS } from "./DbConnectionForm";
 import { DbIcon, dbColor } from "./DbIcon";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,14 @@ export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection)
   }
   useEffect(() => {
     void load();
+    // Cloud sync vừa áp dữ liệu từ máy khác → nạp lại danh sách.
+    let un: Promise<() => void> | undefined;
+    try {
+      un = listen("sync:pulled", () => void load());
+    } catch {
+      /* ngoài Electron */
+    }
+    return () => void un?.then((f) => f()).catch(() => {});
   }, []);
 
   function toggleCollapsed(id: string) {

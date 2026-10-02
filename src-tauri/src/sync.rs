@@ -2,7 +2,7 @@
 //! XChaCha20-Poly1305) bằng master password → đẩy `vault.enc` lên repo GitHub private.
 //! GitHub chỉ thấy ciphertext; cần master password mới giải mã được (zero-knowledge).
 
-use crate::db::{Group, Host, SshKey, StorageBucket, Tunnel, VaultEntry};
+use crate::db::{DbConnection, DbGroup, Group, Host, SshKey, StorageBucket, Tunnel, VaultEntry};
 use argon2::Argon2;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
@@ -29,6 +29,17 @@ pub struct Vault {
     pub buckets: Vec<StorageBucket>,
     /// account keychain -> giá trị (mật khẩu host, private key, passphrase, proxy pass…)
     pub secrets: HashMap<String, String>,
+    /// Kết nối database (từ v0.4.0). Để `Option` và tách riêng mật khẩu khỏi `secrets`
+    /// vì bản cũ không biết các trường này: chúng bỏ qua khi đọc và làm rơi khi ghi.
+    /// Vault thiếu trường (None) = do bản cũ ghi → coi như phía đó KHÔNG đổi gì về
+    /// database, không phải đã xoá hết.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db_connections: Option<Vec<DbConnection>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db_groups: Option<Vec<DbGroup>>,
+    /// Mật khẩu / key JSON của kết nối database (`dbpass:<id>` → giá trị).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db_secrets: Option<HashMap<String, String>>,
 }
 
 // ---------- Crypto ----------
@@ -121,6 +132,43 @@ impl Record for StorageBucket {
     fn rid(&self) -> &str {
         &self.id
     }
+}
+impl Record for DbConnection {
+    fn rid(&self) -> &str {
+        &self.id
+    }
+    fn ts(&self) -> i64 {
+        self.updated_at
+    }
+}
+impl Record for DbGroup {
+    fn rid(&self) -> &str {
+        &self.id
+    }
+}
+
+/// Merge trường tuỳ chọn (dữ liệu database): phía nào thiếu (vault của bản cũ) được
+/// thay bằng base — tức "không đổi" — để không bị hiểu là đã xoá.
+fn merge_opt<T: Record>(base: &Option<Vec<T>>, local: &Option<Vec<T>>, remote: &Option<Vec<T>>, conflicts: &mut Vec<String>) -> Option<Vec<T>> {
+    if local.is_none() && remote.is_none() {
+        return base.clone();
+    }
+    let empty = Vec::new();
+    let b = base.as_ref().unwrap_or(&empty);
+    Some(merge_vec(b, local.as_ref().unwrap_or(b), remote.as_ref().unwrap_or(b), conflicts))
+}
+
+fn merge_opt_secrets(
+    base: &Option<HashMap<String, String>>,
+    local: &Option<HashMap<String, String>>,
+    remote: &Option<HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    if local.is_none() && remote.is_none() {
+        return base.clone();
+    }
+    let empty = HashMap::new();
+    let b = base.as_ref().unwrap_or(&empty);
+    Some(merge_secrets(b, local.as_ref().unwrap_or(b), remote.as_ref().unwrap_or(b)))
 }
 
 /// Merge 3-way một danh sách record theo id.
@@ -260,6 +308,9 @@ pub fn merge_vaults(base: &Vault, local: &Vault, remote: &Vault) -> Vault {
         buckets: merge_vec(&base.buckets, &local.buckets, &remote.buckets, &mut conflicts),
         folders: merge_folders(&base.folders, &local.folders, &remote.folders),
         secrets: merge_secrets(&base.secrets, &local.secrets, &remote.secrets),
+        db_connections: merge_opt(&base.db_connections, &local.db_connections, &remote.db_connections, &mut conflicts),
+        db_groups: merge_opt(&base.db_groups, &local.db_groups, &remote.db_groups, &mut conflicts),
+        db_secrets: merge_opt_secrets(&base.db_secrets, &local.db_secrets, &remote.db_secrets),
     }
 }
 
@@ -275,6 +326,8 @@ pub fn mass_loss(before: &Vault, after: &Vault) -> Option<String> {
         ("vault entries", before.entries.len(), after.entries.len()),
         ("vault folders", before.folders.len(), after.folders.len()),
         ("storage connections", before.buckets.len(), after.buckets.len()),
+        // Thiếu trường (vault của bản cũ) = không đổi → không tính là mất.
+        ("database connections", opt_len(&before.db_connections), after.db_connections.as_ref().map_or(opt_len(&before.db_connections), Vec::len)),
     ];
     let lost: Vec<String> = rows
         .iter()
@@ -282,6 +335,10 @@ pub fn mass_loss(before: &Vault, after: &Vault) -> Option<String> {
         .map(|(n, b, a)| format!("{n} {b} → {a}"))
         .collect();
     (!lost.is_empty()).then(|| lost.join(", "))
+}
+
+fn opt_len<T>(v: &Option<Vec<T>>) -> usize {
+    v.as_ref().map_or(0, Vec::len)
 }
 
 /// Số lượng từng loại dữ liệu (hiển thị khi xem lịch sử / khôi phục).
@@ -295,6 +352,7 @@ pub struct VaultSummary {
     pub folders: usize,
     pub buckets: usize,
     pub secrets: usize,
+    pub db_connections: usize,
     pub host_labels: Vec<String>,
 }
 
@@ -310,7 +368,8 @@ impl Vault {
             entries: self.entries.len(),
             folders: self.folders.len(),
             buckets: self.buckets.len(),
-            secrets: self.secrets.len(),
+            secrets: self.secrets.len() + self.db_secrets.as_ref().map_or(0, HashMap::len),
+            db_connections: opt_len(&self.db_connections),
             host_labels,
         }
     }
@@ -491,6 +550,75 @@ mod tests {
         assert!(mass_loss(&with(8), &with(4)).is_none(), "còn đúng một nửa — chưa chặn");
         assert!(mass_loss(&with(1), &with(0)).is_none(), "xoá host duy nhất — không hỏi");
         assert!(mass_loss(&with(0), &with(5)).is_none(), "thêm thì không sao");
+    }
+
+    fn dbc(id: &str, name: &str, t: i64) -> DbConnection {
+        DbConnection {
+            id: id.into(),
+            name: name.into(),
+            kind: "mysql".into(),
+            host: "h".into(),
+            port: 3306,
+            username: "u".into(),
+            database: None,
+            ssh_host_id: None,
+            ssl_mode: "prefer".into(),
+            read_only: false,
+            options: None,
+            group_id: None,
+            created_at: 0,
+            updated_at: t,
+        }
+    }
+    fn names(v: &Vault) -> Vec<String> {
+        let mut n: Vec<String> = v.db_connections.iter().flatten().map(|c| c.name.clone()).collect();
+        n.sort();
+        n
+    }
+
+    /// Vault do bản cũ (chưa biết database) ghi: thiếu trường → không được hiểu là xoá.
+    #[test]
+    fn vault_from_old_client_keeps_db_connections() {
+        let sec = |v: &str| Some(HashMap::from([("dbpass:a".to_string(), v.to_string())]));
+        let base = Vault { db_connections: Some(vec![dbc("a", "A", 1)]), db_secrets: sec("pw"), ..Default::default() };
+        let local = Vault {
+            db_connections: Some(vec![dbc("a", "A2", 2), dbc("b", "B", 2)]),
+            db_secrets: sec("pw2"),
+            ..Default::default()
+        };
+        let old_remote = Vault::default(); // không có trường db_*
+        let m = merge_vaults(&base, &local, &old_remote);
+        assert_eq!(names(&m), ["A2", "B"]);
+        assert_eq!(m.db_secrets, sec("pw2"));
+        assert!(mass_loss(&local, &old_remote).is_none(), "thiếu trường không phải mất dữ liệu");
+
+        // Giữa hai bản mới: xoá thật vẫn được tôn trọng.
+        let remote = Vault { db_connections: Some(vec![]), db_secrets: Some(HashMap::new()), ..Default::default() };
+        let m = merge_vaults(&base, &base, &remote);
+        assert!(names(&m).is_empty());
+        assert_eq!(m.db_secrets, Some(HashMap::new()));
+
+        // Lần sync đầu sau khi nâng cấp (base của bản cũ không có trường) → gộp hai phía.
+        let m = merge_vaults(&Vault::default(), &local, &Vault { db_connections: Some(vec![dbc("c", "C", 1)]), ..Default::default() });
+        assert_eq!(names(&m), ["A2", "B", "C"]);
+    }
+
+    #[test]
+    fn db_fields_absent_in_json_when_unset() {
+        let json = serde_json::to_string(&Vault::default()).unwrap();
+        assert!(!json.contains("db_"), "{json}");
+        let v: Vault = serde_json::from_str(r#"{"version":1,"hosts":[],"groups":[],"keys":[],"tunnels":[],"secrets":{}}"#).unwrap();
+        assert!(v.db_connections.is_none() && v.db_secrets.is_none());
+        let with = Vault { db_connections: Some(vec![dbc("a", "A", 1)]), ..Default::default() };
+        let back: Vault = serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
+        assert!(back == with);
+    }
+
+    #[test]
+    fn mass_loss_counts_db_connections() {
+        let three = Vault { db_connections: Some((0..3).map(|i| dbc(&i.to_string(), "x", 0)).collect()), ..Default::default() };
+        assert!(mass_loss(&three, &Vault { db_connections: Some(vec![]), ..Default::default() }).is_some());
+        assert!(mass_loss(&three, &Vault::default()).is_none());
     }
 
     #[test]

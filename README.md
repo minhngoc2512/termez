@@ -143,8 +143,8 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 - Manage DNS records through the Cloudflare API (credentials stay local, never synced)
 
 **Cloud sync** (optional)
-- Back up hosts, keys, tunnels, **passwords and storage connections** to a
-  **private GitHub repo**
+- Back up hosts, keys, tunnels, **passwords, storage and database connections**
+  to a **private GitHub repo**
 - **End-to-end encrypted** (Argon2id + XChaCha20-Poly1305) with a master password
   — GitHub only ever stores ciphertext
 - **Auto-pull** on startup and periodically, with **record-level 3-way merge**

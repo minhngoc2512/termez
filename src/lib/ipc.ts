@@ -230,6 +230,8 @@ export interface VaultSummary {
   folders: number;
   buckets: number;
   secrets: number;
+  /** 0 với bản lịch sử từ trước v0.4.0 (chưa đồng bộ database). */
+  db_connections: number;
   host_labels: string[];
 }
 

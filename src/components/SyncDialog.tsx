@@ -109,7 +109,7 @@ export function SyncDialog({ open, onOpenChange }: Props) {
     if (!(await confirmDialog({
       title: "Restore from cloud",
       message:
-        "Restore replaces this device's hosts, keys, tunnels, vault and storage connections with the latest cloud vault. A backup of the current data is saved first. Continue?",
+        "Restore replaces this device's hosts, keys, tunnels, vault, storage and database connections with the latest cloud vault. A backup of the current data is saved first. Continue?",
       confirmText: "Restore",
       danger: true,
     })))
@@ -287,7 +287,7 @@ export function SyncDialog({ open, onOpenChange }: Props) {
                             <p className="text-muted-foreground">
                               {preview.summary.hosts} hosts · {preview.summary.keys} keys · {preview.summary.tunnels} tunnels ·{" "}
                               {preview.summary.entries} vault entries · {preview.summary.buckets} storage ·{" "}
-                              {preview.summary.secrets} secrets
+                              {preview.summary.db_connections} databases · {preview.summary.secrets} secrets
                             </p>
                             {preview.summary.host_labels.length > 0 && (
                               <p className="mt-0.5 truncate" title={preview.summary.host_labels.join(", ")}>

@@ -2031,7 +2031,30 @@ async fn build_vault(db: &SqlitePool) -> anyhow::Result<sync::Vault> {
         }
     }
 
-    Ok(sync::Vault { version: 1, hosts, groups, keys, tunnels, entries, folders, buckets, secrets })
+    let db_connections = db::list_db_connections(db).await?;
+    let db_groups = db::list_db_groups(db).await?;
+    let mut db_secrets = std::collections::HashMap::new();
+    for c in &db_connections {
+        let acc = keychain::db_password(&c.id);
+        if let Some(v) = keychain::get_secret(&acc)? {
+            db_secrets.insert(acc, v);
+        }
+    }
+
+    Ok(sync::Vault {
+        version: 1,
+        hosts,
+        groups,
+        keys,
+        tunnels,
+        entries,
+        folders,
+        buckets,
+        secrets,
+        db_connections: Some(db_connections),
+        db_groups: Some(db_groups),
+        db_secrets: Some(db_secrets),
+    })
 }
 
 fn encode_vault(vault: &sync::Vault, master: &str) -> anyhow::Result<String> {
@@ -2045,7 +2068,12 @@ fn decode_vault(content_b64: &str, master: &str) -> anyhow::Result<sync::Vault> 
     Ok(serde_json::from_slice(&json)?)
 }
 fn vault_summary(v: &sync::Vault) -> String {
-    format!("Synced {} hosts, {} keys, {} tunnels", v.hosts.len(), v.keys.len(), v.tunnels.len())
+    let dbs = v.db_connections.as_ref().map_or(0, Vec::len);
+    if dbs > 0 {
+        format!("Synced {} hosts, {} keys, {} tunnels, {dbs} databases", v.hosts.len(), v.keys.len(), v.tunnels.len())
+    } else {
+        format!("Synced {} hosts, {} keys, {} tunnels", v.hosts.len(), v.keys.len(), v.tunnels.len())
+    }
 }
 
 /// Base (trạng thái lần sync trước) để merge 3-way.
@@ -2090,12 +2118,23 @@ async fn apply_vault(
         &vault.entries, &vault.folders, &vault.buckets,
     )
     .await?;
+    // Dữ liệu database: vault thiếu trường (bản cũ ghi / bản lịch sử cũ) → giữ nguyên trên máy.
+    if let Some(conns) = &vault.db_connections {
+        db::import_db_connections(db, conns, vault.db_groups.as_deref().unwrap_or_default()).await?;
+    }
+    let keep = |k: &str| {
+        vault.secrets.contains_key(k)
+            || match &vault.db_secrets {
+                Some(m) => m.contains_key(k),
+                None => k.starts_with(&keychain::db_password("")),
+            }
+    };
     for k in prev_secret_keys {
-        if !vault.secrets.contains_key(k) {
+        if !keep(k) {
             let _ = keychain::delete_secret(k);
         }
     }
-    for (acc, val) in &vault.secrets {
+    for (acc, val) in vault.secrets.iter().chain(vault.db_secrets.iter().flatten()) {
         keychain::set_secret(acc, val)?;
     }
     Ok(())
@@ -2111,7 +2150,8 @@ async fn replace_local(
 ) -> anyhow::Result<()> {
     let local = build_vault(db).await?;
     backup_local(base_path, master, &local, reason)?;
-    let prev: std::collections::HashSet<String> = local.secrets.keys().cloned().collect();
+    let prev: std::collections::HashSet<String> =
+        local.secrets.keys().chain(local.db_secrets.iter().flat_map(|m| m.keys())).cloned().collect();
     apply_vault(db, vault, &prev).await
 }
 
@@ -2574,6 +2614,7 @@ pub async fn get_db_connections(state: State<'_, AppState>) -> R<Vec<db::DbConne
 
 #[tauri::command]
 pub async fn upsert_db_connection(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: db::DbConnectionInput,
 ) -> R<db::DbConnection> {
@@ -2582,6 +2623,7 @@ pub async fn upsert_db_connection(
     if let Some(pw) = input.password.as_deref().filter(|p| !p.is_empty()) {
         keychain::set_secret(&keychain::db_password(&id), pw).map_err(e)?;
     }
+    schedule_autosync(app, &state);
     Ok(conn)
 }
 
@@ -2591,28 +2633,35 @@ pub async fn get_db_groups(state: State<'_, AppState>) -> R<Vec<db::DbGroup>> {
 }
 
 #[tauri::command]
-pub async fn upsert_db_group(state: State<'_, AppState>, id: Option<String>, name: String) -> R<db::DbGroup> {
+pub async fn upsert_db_group(app: AppHandle, state: State<'_, AppState>, id: Option<String>, name: String) -> R<db::DbGroup> {
     let name = name.trim();
     if name.is_empty() {
         return Err("Group name is required".into());
     }
-    db::upsert_db_group(&state.db, id.as_deref(), name).await.map_err(e)
+    let g = db::upsert_db_group(&state.db, id.as_deref(), name).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(g)
 }
 
 #[tauri::command]
-pub async fn delete_db_group(state: State<'_, AppState>, id: String) -> R<()> {
-    db::delete_db_group(&state.db, &id).await.map_err(e)
+pub async fn delete_db_group(app: AppHandle, state: State<'_, AppState>, id: String) -> R<()> {
+    db::delete_db_group(&state.db, &id).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn set_db_connection_group(state: State<'_, AppState>, id: String, group_id: Option<String>) -> R<()> {
-    db::set_db_connection_group(&state.db, &id, group_id.as_deref()).await.map_err(e)
+pub async fn set_db_connection_group(app: AppHandle, state: State<'_, AppState>, id: String, group_id: Option<String>) -> R<()> {
+    db::set_db_connection_group(&state.db, &id, group_id.as_deref()).await.map_err(e)?;
+    schedule_autosync(app, &state);
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn delete_db_connection(state: State<'_, AppState>, id: String) -> R<()> {
+pub async fn delete_db_connection(app: AppHandle, state: State<'_, AppState>, id: String) -> R<()> {
     db::delete_db_connection(&state.db, &id).await.map_err(e)?;
     keychain::delete_secret(&keychain::db_password(&id)).ok();
+    schedule_autosync(app, &state);
     Ok(())
 }
 
@@ -2966,6 +3015,93 @@ mod sync_guard_tests {
     async fn remote_hosts(repo: &str) -> usize {
         let (b64, _) = sync::get_vault("pat", "me", repo).await.unwrap().unwrap();
         decode_vault(&b64, MASTER).unwrap().hosts.len()
+    }
+
+    /// Xoá các secret `dbpass:` tạo trong test khỏi keychain (kể cả khi test fail).
+    struct SecretCleanup(Vec<String>);
+    impl Drop for SecretCleanup {
+        fn drop(&mut self) {
+            for a in &self.0 {
+                let _ = keychain::delete_secret(a);
+            }
+        }
+    }
+    fn db_conn(id: &str, name: &str) -> db::DbConnection {
+        db::DbConnection {
+            id: id.into(),
+            name: name.into(),
+            kind: "postgres".into(),
+            host: "db.internal".into(),
+            port: 5432,
+            username: "app".into(),
+            database: Some("shop".into()),
+            ssh_host_id: None,
+            ssl_mode: "prefer".into(),
+            read_only: true,
+            options: None,
+            group_id: Some("g1".into()),
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    /// Kết nối database + mật khẩu đi qua cloud; vault bị một bản cũ (v0.3.x, không
+    /// biết database) ghi đè giữa chừng cũng không làm mất kết nối hay mật khẩu.
+    #[tokio::test]
+    async fn db_connections_sync_and_survive_old_clients() {
+        mock_github();
+        let repo = repo();
+        let id = format!("synctest-{}", uuid::Uuid::new_v4());
+        let acc = keychain::db_password(&id);
+        let _cleanup = SecretCleanup(vec![acc.clone()]);
+        let (a, a_base) = instance(&["h1"]).await;
+        let group = db::DbGroup { id: "g1".into(), name: "Prod".into(), created_at: 1 };
+        db::import_db_connections(&a, &[db_conn(&id, "orders-db")], &[group]).await.unwrap();
+        keychain::set_secret(&acc, "s3cret").unwrap();
+        do_push(&a, MASTER, "pat", "me", &repo, &a_base, false).await.unwrap();
+
+        let remote = |repo: String| async move {
+            let (b64, sha) = sync::get_vault("pat", "me", &repo).await.unwrap().unwrap();
+            (decode_vault(&b64, MASTER).unwrap(), sha)
+        };
+        let (v, _) = remote(repo.clone()).await;
+        assert_eq!(v.db_connections.as_ref().map(|c| c[0].name.as_str()), Some("orders-db"));
+        assert_eq!(v.db_groups.as_ref().map(Vec::len), Some(1));
+        assert_eq!(v.db_secrets.as_ref().and_then(|m| m.get(&acc)).map(String::as_str), Some("s3cret"));
+        assert!(v.secrets.keys().all(|k| !k.starts_with("dbpass:")), "mật khẩu DB không nằm trong secrets mà bản cũ thấy");
+
+        // Máy B (bản mới) kéo về: có kết nối + nhóm.
+        let (b, b_base) = instance(&[]).await;
+        do_pull(&b, MASTER, "pat", "me", &repo, &b_base, false).await.unwrap();
+        let conns = db::list_db_connections(&b).await.unwrap();
+        assert_eq!((conns.len(), conns[0].group_id.as_deref()), (1, Some("g1")));
+        assert_eq!(db::list_db_groups(&b).await.unwrap().len(), 1);
+
+        // Một máy chạy bản cũ sửa host rồi đẩy: vault mới không còn trường db_*.
+        let (mut old, sha) = remote(repo.clone()).await;
+        old.db_connections = None;
+        old.db_groups = None;
+        old.db_secrets = None;
+        old.hosts.push(host("from-old-client"));
+        sync::put_vault("pat", "me", &repo, &encode_vault(&old, MASTER).unwrap(), Some(sha), "old client")
+            .await
+            .unwrap();
+        assert!(remote(repo.clone()).await.0.db_connections.is_none(), "vault của bản cũ không có trường db_*");
+
+        // A kéo về: nhận host mới, GIỮ kết nối + mật khẩu, và đẩy lại dữ liệu database lên.
+        do_pull(&a, MASTER, "pat", "me", &repo, &a_base, false).await.unwrap();
+        assert_eq!(db::list_db_connections(&a).await.unwrap().len(), 1);
+        assert_eq!(keychain::get_secret(&acc).unwrap().as_deref(), Some("s3cret"));
+        assert!(db::list_hosts(&a).await.unwrap().iter().any(|h| h.id == "from-old-client"));
+        let (v, _) = remote(repo.clone()).await;
+        assert_eq!(v.db_connections.as_ref().map(Vec::len), Some(1), "dữ liệu database phải được đẩy lại");
+
+        // B xoá kết nối (xoá thật giữa hai bản mới) → A kéo về thì mất theo.
+        db::delete_db_connection(&b, &id).await.unwrap();
+        do_pull(&b, MASTER, "pat", "me", &repo, &b_base, false).await.unwrap();
+        do_push(&b, MASTER, "pat", "me", &repo, &b_base, false).await.unwrap();
+        do_pull(&a, MASTER, "pat", "me", &repo, &a_base, false).await.unwrap();
+        assert!(db::list_db_connections(&a).await.unwrap().is_empty());
     }
 
     #[tokio::test]

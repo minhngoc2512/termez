@@ -1007,6 +1007,45 @@ pub async fn rename_vault_folder(pool: &SqlitePool, old: &str, new: &str) -> any
 // ----- Sync: nhập toàn bộ dữ liệu (khôi phục vault) -----
 
 /// Xóa sạch rồi ghi lại toàn bộ từ vault. (Secret khôi phục riêng vào keychain.)
+/// Thay toàn bộ kết nối + nhóm database bằng dữ liệu từ cloud (một transaction).
+pub async fn import_db_connections(pool: &SqlitePool, conns: &[DbConnection], groups: &[DbGroup]) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM db_connections").execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM db_groups").execute(&mut *tx).await?;
+    for g in groups {
+        sqlx::query("INSERT INTO db_groups (id, name, created_at) VALUES (?, ?, ?)")
+            .bind(&g.id)
+            .bind(&g.name)
+            .bind(g.created_at)
+            .execute(&mut *tx)
+            .await?;
+    }
+    for c in conns {
+        sqlx::query(
+            "INSERT INTO db_connections (id, name, kind, host, port, username, database, ssh_host_id, ssl_mode, \
+             read_only, options, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&c.id)
+        .bind(&c.name)
+        .bind(&c.kind)
+        .bind(&c.host)
+        .bind(c.port)
+        .bind(&c.username)
+        .bind(&c.database)
+        .bind(&c.ssh_host_id)
+        .bind(&c.ssl_mode)
+        .bind(c.read_only)
+        .bind(&c.options)
+        .bind(&c.group_id)
+        .bind(c.created_at)
+        .bind(c.updated_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn import_all(
     pool: &SqlitePool,
     hosts: &[Host],
