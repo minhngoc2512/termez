@@ -1,5 +1,5 @@
 import {
-  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud, CloudOff,
+  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud, CloudOff, Database,
   SquareTerminal, ChevronRight, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ export type Section =
   | "keychain"
   | "forwarding"
   | "sftp"
+  | "databases"
   | "passwords"
   | "snippets"
   | "known"
@@ -29,6 +30,7 @@ const TOP: Item[] = [
   { id: "keychain", label: "Keychain", icon: Key },
   { id: "forwarding", label: "Port Forwarding", icon: Cable },
   { id: "sftp", label: "SFTP", icon: FolderOpen },
+  { id: "databases", label: "Databases", icon: Database },
   { id: "passwords", label: "Passwords", icon: KeyRound },
   { id: "snippets", label: "Snippets", icon: Code2 },
   { id: "known", label: "Known Hosts", icon: ShieldCheck },

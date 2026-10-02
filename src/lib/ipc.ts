@@ -214,6 +214,73 @@ export interface CfInput {
   comment?: string | null;
 }
 
+export type DbKind = "mysql" | "mariadb" | "postgres";
+export type DbSslMode = "disable" | "prefer" | "require" | "verify";
+
+export interface DbConnection {
+  id: string;
+  name: string;
+  kind: DbKind;
+  host: string;
+  port: number;
+  username: string;
+  database: string | null;
+  ssh_host_id: string | null;
+  ssl_mode: DbSslMode;
+  read_only: boolean;
+  options: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface DbConnectionInput {
+  id: string | null;
+  name: string;
+  kind: DbKind;
+  host: string;
+  port: number;
+  username: string;
+  /** Rỗng khi sửa = giữ mật khẩu cũ. */
+  password: string | null;
+  database: string | null;
+  ssh_host_id: string | null;
+  ssl_mode: DbSslMode;
+  read_only: boolean;
+  options: string | null;
+}
+
+export interface DbSessionInfo {
+  session_id: string;
+  kind: DbKind;
+  database: string | null;
+  server_version: string;
+}
+
+export interface DbTreeNode {
+  name: string;
+  kind: "database" | "schema" | "table" | "view" | "column";
+  detail: string | null;
+  leaf: boolean;
+}
+
+export interface DbColumn {
+  name: string;
+  type_name: string | null;
+}
+
+export interface DbResultSet {
+  columns: DbColumn[];
+  rows: (string | null)[][];
+  affected: number | null;
+  truncated: boolean;
+}
+
+export interface DbQueryOutput {
+  results: DbResultSet[];
+  elapsed_ms: number;
+  database: string | null;
+}
+
 export interface StorageBucket {
   id: string;
   name: string;
@@ -345,6 +412,17 @@ export const api = {
     invoke<CfRecord>("cf_update_record", { zoneId, id, input }),
   cfDeleteRecord: (zoneId: string, id: string) =>
     invoke<void>("cf_delete_record", { zoneId, id }),
+
+  getDbConnections: () => invoke<DbConnection[]>("get_db_connections"),
+  upsertDbConnection: (input: DbConnectionInput) => invoke<DbConnection>("upsert_db_connection", { input }),
+  deleteDbConnection: (id: string) => invoke<void>("delete_db_connection", { id }),
+  dbTest: (input: DbConnectionInput) => invoke<string>("db_test", { input }),
+  dbOpen: (connId: string) => invoke<DbSessionInfo>("db_open", { connId }),
+  dbClose: (sessionId: string) => invoke<void>("db_close", { sessionId }),
+  dbTree: (sessionId: string, path: string[]) => invoke<DbTreeNode[]>("db_tree", { sessionId, path }),
+  dbQuery: (sessionId: string, database: string | null, sql: string, limit: number) =>
+    invoke<DbQueryOutput>("db_query", { sessionId, database, sql, limit }),
+  dbCancel: (sessionId: string) => invoke<void>("db_cancel", { sessionId }),
 
   getBuckets: () => invoke<StorageBucket[]>("get_buckets"),
   upsertBucket: (input: StorageBucketInput) => invoke<StorageBucket>("upsert_bucket", { input }),

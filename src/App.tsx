@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   DockviewReact,
   DockviewReadyEvent,
@@ -27,6 +27,7 @@ import { NetworkScanPage } from "./components/NetworkScanPage";
 import { KnownHostsPage } from "./components/KnownHostsPage";
 import { CloudflareDnsPage } from "./components/CloudflareDnsPage";
 import { StoragePage } from "./components/StoragePage";
+import * as dbPool from "./lib/dbPool";
 import { PanelTab } from "./components/PanelTab";
 import { TaskTab } from "./components/TaskTab";
 import * as terminalPool from "./lib/terminalPool";
@@ -41,8 +42,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { applyAppTheme, useStore } from "./store";
-import { api, Host } from "./lib/ipc";
+import { api, DbConnection, DbKind, Host } from "./lib/ipc";
 import { SyncConflictDialog } from "./components/SyncConflictDialog";
+
+// Màn Databases (CodeMirror…) chỉ tải khi dùng tới — không làm chậm lúc mở app.
+const DatabasesPage = lazy(() => import("./components/db/DatabasesPage").then((m) => ({ default: m.DatabasesPage })));
+const DbView = lazy(() => import("./components/db/DbView").then((m) => ({ default: m.DbView })));
 
 const components = {
   terminal: (
@@ -61,7 +66,18 @@ const components = {
   ),
   sftp: () => <SftpView />,
   monitor: (props: IDockviewPanelProps<{ hostId: string }>) => <MonitorView hostId={props.params.hostId} />,
+  db: (props: IDockviewPanelProps<{ connId: string; kind: DbKind }>) => (
+    <Suspense fallback={null}>
+      <DbView panelId={props.api.id} connId={props.params.connId} kind={props.params.kind} />
+    </Suspense>
+  ),
 };
+
+/** Đóng hẳn một pane: ngắt phiên của nó (terminal SSH hoặc database). */
+function releasePanel(id: string) {
+  terminalPool.release(id);
+  dbPool.release(id);
+}
 
 const tabComponents = { info: PanelTab };
 const EmptyWatermark = () => null;
@@ -259,7 +275,7 @@ export default function App() {
     });
     // Panel bị đóng hẳn → ngắt phiên. Nhưng KHÔNG release khi đang chuyển
     // workspace (clear/fromJSON cũng bắn sự kiện này) — pool phải giữ phiên sống.
-    event.api.onDidRemovePanel((e) => { if (!switching.current) terminalPool.release(e.id); });
+    event.api.onDidRemovePanel((e) => { if (!switching.current) releasePanel(e.id); });
     // Cho phép kéo tab từ TaskBar (drag ngoài) → dockview mới hiện overlay chia màn hình.
     // Lúc dragover không đọc được getData nên nhận diện qua dataTransfer.types.
     event.api.onUnhandledDragOver((e) => {
@@ -321,7 +337,7 @@ export default function App() {
       id === activeTask
         ? apiRef.current?.panels.map((p) => p.id) ?? []
         : Object.keys(taskLayouts.current.get(id)?.panels ?? {});
-    panelIds.forEach((pid) => terminalPool.release(pid));
+    panelIds.forEach((pid) => releasePanel(pid));
     taskLayouts.current.delete(id);
 
     const remaining = tasks.filter((t) => t.id !== id);
@@ -427,10 +443,12 @@ export default function App() {
     const api = apiRef.current;
     if (!api?.activePanel) return;
     const active = api.activePanel;
-    if (!(active.params as { hostId?: string } | undefined)?.hostId) return;
+    const params = active.params as { hostId?: string; connId?: string } | undefined;
+    if (!params?.hostId && !params?.connId) return;
     api.addPanel({
       id: crypto.randomUUID(),
-      component: "terminal",
+      // Pane database → thêm pane cùng kết nối (phiên riêng) để so sánh hai truy vấn.
+      component: params.connId ? "db" : "terminal",
       tabComponent: "info",
       title: active.title || "shell",
       params: active.params,
@@ -446,6 +464,19 @@ export default function App() {
         tabComponent: "info",
         title: `${host.label} · Monitor`,
         params: { hostId: host.id },
+      })
+    );
+  }
+
+  // Mở một kết nối database trong TASK riêng.
+  function openDb(c: DbConnection) {
+    openInNewTask(() =>
+      apiRef.current?.addPanel({
+        id: crypto.randomUUID(),
+        component: "db",
+        tabComponent: "info",
+        title: c.name,
+        params: { connId: c.id, kind: c.kind },
       })
     );
   }
@@ -618,6 +649,11 @@ export default function App() {
                 {section === "scan" && <NetworkScanPage onAddHost={addHostFromScan} />}
                 {section === "dns" && <CloudflareDnsPage />}
                 {section === "storage" && <StoragePage />}
+              {section === "databases" && (
+                <Suspense fallback={null}>
+                  <DatabasesPage onOpen={openDb} />
+                </Suspense>
+              )}
               </div>
             )}
           </main>
