@@ -23,6 +23,8 @@ export interface DbPane {
   children: Record<string, DbTreeNode[]>;
   expanded: Record<string, boolean>;
   treeError: string | null;
+  /** Kết nối có chọn database: cây chỉ hiện database đó, trừ khi bật "Show all". */
+  showAll: boolean;
 }
 
 const panes = new Map<string, DbPane>();
@@ -73,6 +75,7 @@ export function ensure(panelId: string, connId: string, kind: DbKind) {
     children: {},
     expanded: {},
     treeError: null,
+    showAll: false,
   });
   queueMicrotask(() => void connect(panelId)); // không set state giữa lúc render
 }
@@ -88,8 +91,17 @@ export async function connect(panelId: string) {
       api.dbClose(session.session_id).catch(() => {}); // pane đã đóng trong lúc chờ
       return;
     }
-    set(panelId, { status: "ready", session, database: panes.get(panelId)!.database ?? session.database });
+    const cur = panes.get(panelId)!;
+    const scoped = session.configured_database;
+    set(panelId, {
+      status: "ready",
+      session,
+      database: cur.database ?? session.database,
+      // Database đã cấu hình → mở sẵn nhánh của nó.
+      expanded: scoped ? { ...cur.expanded, [pathKey([scoped])]: true } : cur.expanded,
+    });
     void loadChildren(panelId, []);
+    if (scoped) void loadChildren(panelId, [scoped]);
   } catch (e) {
     set(panelId, { status: "error", error: String(e) });
   }
@@ -104,7 +116,12 @@ export function release(panelId: string) {
   listeners.delete(panelId);
 }
 
-export function update(panelId: string, patch: Partial<Pick<DbPane, "sql" | "database" | "limit" | "activeResult">>) {
+/** Database thật sự hiện trong cây/dropdown (null = tất cả). */
+export function scopedDatabase(p: DbPane): string | null {
+  return p.showAll ? null : (p.session?.configured_database ?? null);
+}
+
+export function update(panelId: string, patch: Partial<Pick<DbPane, "sql" | "database" | "limit" | "activeResult" | "showAll">>) {
   set(panelId, patch);
 }
 

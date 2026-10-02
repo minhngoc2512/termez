@@ -2,7 +2,8 @@
 //!
 //! - Kết quả ở định dạng `JSONCompactEachRowWithNamesAndTypes` (mỗi dòng một mảng
 //!   JSON), đọc dạng stream; giới hạn dòng đặt luôn phía server
-//!   (`max_result_rows` + `result_overflow_mode=break`).
+//!   (`max_result_rows` + `result_overflow_mode=break`). Server bật query cache thì
+//!   ClickHouse cấm `break` (lỗi 731) → bỏ hai thiết lập đó, chỉ cắt phía client.
 //! - HTTP chỉ chạy một câu mỗi request → script được tách theo `;`.
 //! - Câu lệnh của editor chạy trong một HTTP session (giữ SET / bảng tạm); cây
 //!   schema và lệnh huỷ dùng request riêng (session bị khoá khi đang chạy).
@@ -22,6 +23,8 @@ pub struct ChSession {
     session_id: String,
     /// query_id của câu đang chạy (để KILL QUERY).
     running: std::sync::Mutex<Option<String>>,
+    /// Còn dùng giới hạn dòng phía server không (tắt khi server bật query cache).
+    server_limit: std::sync::atomic::AtomicBool,
 }
 
 fn build_client(spec: &ConnectSpec, https: bool) -> anyhow::Result<(reqwest::Client, String)> {
@@ -61,6 +64,7 @@ impl ChSession {
                 read_only: spec.read_only,
                 session_id: uuid::Uuid::new_v4().to_string(),
                 running: std::sync::Mutex::new(None),
+                server_limit: std::sync::atomic::AtomicBool::new(true),
             };
             match s.scalar("SELECT version()").await {
                 Ok(v) => return Ok((s, v)),
@@ -127,14 +131,27 @@ impl ChSession {
     ) -> anyhow::Result<(Vec<ResultSet>, Option<String>)> {
         let db = database.or_else(|| self.default_db.clone());
         let mut sets = Vec::new();
+        use std::sync::atomic::Ordering;
         for stmt in split_statements(sql) {
-            let query_id = uuid::Uuid::new_v4().to_string();
-            *self.running.lock().unwrap() = Some(query_id.clone());
-            let res = self.run_one(&stmt, db.clone(), limit, &query_id).await;
-            *self.running.lock().unwrap() = None;
+            let mut res = self.run_tracked(&stmt, db.clone(), limit).await;
+            if self.server_limit.load(Ordering::Relaxed)
+                && matches!(&res, Err(e) if e.to_string().contains("QUERY_CACHE_USED_WITH_NON_THROW_OVERFLOW_MODE"))
+            {
+                // Profile của user bật use_query_cache → không đặt giới hạn phía server nữa.
+                self.server_limit.store(false, Ordering::Relaxed);
+                res = self.run_tracked(&stmt, db.clone(), limit).await;
+            }
             sets.push(res?);
         }
         Ok((sets, db))
+    }
+
+    async fn run_tracked(&self, stmt: &str, db: Option<String>, limit: usize) -> anyhow::Result<ResultSet> {
+        let query_id = uuid::Uuid::new_v4().to_string();
+        *self.running.lock().unwrap() = Some(query_id.clone());
+        let res = self.run_one(stmt, db, limit, &query_id).await;
+        *self.running.lock().unwrap() = None;
+        res
     }
 
     async fn run_one(
@@ -148,9 +165,11 @@ impl ChSession {
             ("session_id", self.session_id.clone()),
             ("session_timeout", "3600".to_string()),
             ("query_id", query_id.to_string()),
-            ("max_result_rows", (limit + 1).to_string()),
-            ("result_overflow_mode", "break".to_string()),
         ];
+        if self.server_limit.load(std::sync::atomic::Ordering::Relaxed) {
+            params.push(("max_result_rows", (limit + 1).to_string()));
+            params.push(("result_overflow_mode", "break".to_string()));
+        }
         if let Some(db) = db {
             params.push(("database", db));
         }

@@ -81,6 +81,9 @@ pub struct SessionInfo {
     pub database: Option<String>,
     pub server_version: String,
     pub read_only: bool,
+    /// Database chọn trong cấu hình kết nối (None = không chọn → hiện mọi database).
+    /// Redis: "db<n>" cho khớp tên node trong cây.
+    pub configured_database: Option<String>,
 }
 
 enum Backend {
@@ -190,7 +193,21 @@ impl DbManager {
             .lock()
             .await
             .insert(id.clone(), Arc::new(Session { backend, tunnel, read_only: spec.read_only }));
-        Ok(SessionInfo { session_id: id, kind: spec.kind, database, server_version, read_only: spec.read_only })
+        let configured_database = spec.database.clone().filter(|d| !d.trim().is_empty()).map(|d| {
+            if spec.kind == "redis" {
+                format!("db{}", d.trim().trim_start_matches("db"))
+            } else {
+                d
+            }
+        });
+        Ok(SessionInfo {
+            session_id: id,
+            kind: spec.kind,
+            database,
+            server_version,
+            read_only: spec.read_only,
+            configured_database,
+        })
     }
 
     async fn get(&self, id: &str) -> anyhow::Result<Arc<Session>> {
@@ -446,8 +463,6 @@ mod tests {
         let m = DbManager::new();
         let info = m.open(spec.clone(), None).await.expect("open");
         assert!(!info.server_version.is_empty());
-        let dbs = list_databases(&spec).await.expect("list databases");
-        assert!(dbs.contains(&path[0]), "thiếu {} trong {dbs:?}", path[0]);
         let id = info.session_id;
 
         // Nhiều câu lệnh một lần: tạo bảng, chèn, đọc.
@@ -457,6 +472,8 @@ mod tests {
         assert_eq!(last.rows.len(), 2);
         assert_eq!(last.rows[1], vec![Some("2".into()), Some("bob".into()), None]);
         assert!(out.results.iter().any(|r| r.affected == Some(2)), "INSERT báo 2 dòng");
+        let dbs = list_databases(&spec).await.expect("list databases");
+        assert!(dbs.contains(&path[0]), "thiếu {} trong {dbs:?}", path[0]);
 
         // Giới hạn dòng → truncated, không lỗi.
         let out = m.query(&id, None, big, 10).await.expect("big");
@@ -532,6 +549,14 @@ mod tests {
     #[ignore]
     async fn clickhouse_roundtrip() {
         let Some(s) = spec("TERMEZ_TEST_CH", "clickhouse", "default", false) else { return };
+        // Profile bật query cache → ClickHouse cấm result_overflow_mode=break (lỗi 731);
+        // phải tự bỏ giới hạn phía server và vẫn cắt đúng số dòng.
+        let m = DbManager::new();
+        let id = m.open(s.clone(), None).await.unwrap().session_id;
+        m.query(&id, None, "SET use_query_cache = 1", 10).await.expect("set");
+        let out = m.query(&id, None, "SELECT number FROM numbers(100000)", 10).await.expect("query cache + limit");
+        assert_eq!(out.results[0].rows.len(), 10);
+        assert!(out.results[0].truncated);
         roundtrip(
             s,
             "CREATE DATABASE IF NOT EXISTS shop; DROP TABLE IF EXISTS shop.t; \

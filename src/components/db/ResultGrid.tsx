@@ -133,7 +133,7 @@ export function ResultGrid({ rs }: { rs: DbResultSet }) {
             <DialogTitle className="truncate">{viewer?.col}</DialogTitle>
           </DialogHeader>
           <pre
-            className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-background p-3 text-xs"
+            className="selectable max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-background p-3 text-xs"
             style={{ fontFamily: MONO }}
           >
             {viewer && formatValue(viewer.value)}

@@ -115,9 +115,14 @@
   textarea,
   [contenteditable="true"],
   .xterm,
-  .xterm * {
+  .xterm *,
+  .selectable,
+  .selectable * {
     user-select: text;
     -webkit-user-select: text;
+  }
+  .selectable {
+    cursor: text;
   }
 }
 

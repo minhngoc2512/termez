@@ -3,6 +3,7 @@ import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, Refresh
 import * as dbPool from "../../lib/dbPool";
 import type { DbPane } from "../../lib/dbPool";
 import type { DbTreeNode } from "../../lib/ipc";
+import { CopyableError } from "./CopyableError";
 import { cn } from "@/lib/utils";
 
 const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3, key: KeyRound, info: Info } as const;
@@ -36,8 +37,17 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
     };
   }, [menu]);
 
+  const scoped = dbPool.scopedDatabase(pane);
+  const configured = pane.session?.configured_database ?? null;
+
   function renderLevel(path: string[], depth: number) {
-    const nodes = pane.children[dbPool.pathKey(path)];
+    let nodes = pane.children[dbPool.pathKey(path)];
+    // Kết nối có chọn database → gốc cây chỉ còn database đó (kể cả khi tài khoản
+    // không thấy nó trong danh sách, vẫn hiện để mở được).
+    if (path.length === 0 && scoped && nodes) {
+      const hit = nodes.filter((n) => n.name === scoped);
+      nodes = hit.length ? hit : [{ name: scoped, kind: "database", detail: null, leaf: false }];
+    }
     if (!nodes) {
       return (
         <div className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground" style={{ paddingLeft: 8 + depth * 14 }}>
@@ -92,6 +102,18 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Schema</span>
+        {configured && (
+          <button
+            onClick={() => dbPool.update(panelId, { showAll: !pane.showAll })}
+            title={pane.showAll ? `Show only ${configured} (from the connection settings)` : "Show all databases on the server"}
+            className={cn(
+              "ml-auto mr-1 rounded px-1.5 py-0.5 text-[11px] hover:bg-accent",
+              pane.showAll ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {pane.showAll ? "All databases" : "Show all"}
+          </button>
+        )}
         <button
           title="Refresh"
           onClick={() => dbPool.refreshTree(panelId)}
@@ -102,7 +124,7 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
       </div>
       <div className="min-h-0 flex-1 overflow-auto py-1">
         {pane.treeError ? (
-          <div className="px-3 py-2 text-xs text-destructive">{pane.treeError}</div>
+          <CopyableError text={pane.treeError} className="px-3 py-2" />
         ) : pane.status === "ready" ? (
           renderLevel([], 0)
         ) : null}

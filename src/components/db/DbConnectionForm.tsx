@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CopyableError } from "./CopyableError";
 import { cn } from "@/lib/utils";
 
 export const DB_KINDS: { id: DbKind; label: string; port: number; user: string }[] = [
@@ -330,7 +331,7 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
               }
             >
               {testMsg.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
-              <span className="whitespace-pre-wrap break-words">{testMsg.text}</span>
+              <CopyableError text={testMsg.text} tone={testMsg.ok ? "ok" : "error"} mono={false} className="min-w-0 flex-1 text-sm" />
             </div>
           )}
           {error && <div className="text-sm text-destructive">{error}</div>}
@@ -435,7 +436,7 @@ function DatabasePicker({
               <Loader2 className="size-4 animate-spin" /> Connecting…
             </div>
           ) : err ? (
-            <div className="whitespace-pre-wrap break-words px-3 py-2 text-xs text-destructive">{err}</div>
+            <CopyableError text={err} className="px-3 py-2" />
           ) : shown.length === 0 ? (
             <div className="px-3 py-2 text-muted-foreground">(no databases)</div>
           ) : (

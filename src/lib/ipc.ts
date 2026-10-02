@@ -263,6 +263,8 @@ export interface DbSessionInfo {
   database: string | null;
   server_version: string;
   read_only: boolean;
+  /** Database chọn trong cấu hình (Redis: "db<n>"); null = hiện mọi database. */
+  configured_database: string | null;
 }
 
 export interface DbTreeNode {

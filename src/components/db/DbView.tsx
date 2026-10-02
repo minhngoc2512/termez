@@ -8,6 +8,7 @@ import { copyText } from "../../lib/clipboard";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 import { ResultGrid } from "./ResultGrid";
 import { SchemaTree, TreeMenuAction } from "./SchemaTree";
+import { CopyableError } from "./CopyableError";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -80,7 +81,10 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   }, [pane?.session, pane?.database, pane?.children, d, panelId]);
 
   if (!pane) return null;
-  const databases = (pane.children[""] ?? []).filter((n) => n.kind === "database").map((n) => n.name);
+  const scoped = dbPool.scopedDatabase(pane);
+  const databases = scoped
+    ? [scoped]
+    : (pane.children[""] ?? []).filter((n) => n.kind === "database").map((n) => n.name);
   const result = pane.output?.results[pane.activeResult];
 
   async function run(all: boolean, sqlOverride?: string, database?: string | null) {
@@ -203,7 +207,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
         ) : (
           <>
             <AlertTriangle className="size-6 text-destructive" />
-            <div className="max-w-lg whitespace-pre-wrap text-sm text-destructive">{pane.error}</div>
+            <CopyableError text={pane.error ?? ""} className="w-full max-w-lg text-left" />
             <Button size="sm" onClick={() => dbPool.connect(panelId)}>
               <RotateCw className="size-4" /> Retry
             </Button>
@@ -375,7 +379,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
             </div>
             <div className="min-h-0 flex-1">
               {pane.queryError ? (
-                <pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-destructive">{pane.queryError}</pre>
+                <CopyableError text={pane.queryError} className="h-full p-3" />
               ) : result && result.columns.length > 0 ? (
                 <ResultGrid key={`${pane.output!.elapsed_ms}-${pane.activeResult}`} rs={result} />
               ) : null}
