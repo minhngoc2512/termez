@@ -39,6 +39,40 @@ pub struct PgSession {
     running: std::sync::Mutex<Option<CancelToken>>,
 }
 
+/// Tên database nếu `sql` là một câu `DROP DATABASE [IF EXISTS] name …` duy nhất.
+fn drop_database_target(sql: &str) -> Option<String> {
+    let t = sql.trim().trim_end_matches(';').trim();
+    if t.contains(';') {
+        return None;
+    }
+    let lower = t.to_ascii_lowercase();
+    let rest = lower.strip_prefix("drop database")?;
+    let mut rest = &t[t.len() - rest.len()..];
+    rest = rest.trim_start();
+    if rest.to_ascii_lowercase().starts_with("if exists") {
+        rest = rest[9..].trim_start();
+    }
+    if let Some(q) = rest.strip_prefix('"') {
+        let mut name = String::new();
+        let mut chars = q.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    name.push('"');
+                } else {
+                    return Some(name);
+                }
+            } else {
+                name.push(c);
+            }
+        }
+        None
+    } else {
+        rest.split(|c: char| c.is_whitespace() || c == '(').next().filter(|n| !n.is_empty()).map(|n| n.to_lowercase())
+    }
+}
+
 impl PgSession {
     pub async fn connect(spec: &ConnectSpec) -> anyhow::Result<(Self, String)> {
         let mut base = Config::new();
@@ -115,9 +149,28 @@ impl PgSession {
         limit: usize,
     ) -> anyhow::Result<(Vec<ResultSet>, Option<String>)> {
         let db = database.unwrap_or_else(|| self.default_db.clone());
+        // DROP DATABASE: đóng client phiên này đang giữ tới database đó trước (nếu không
+        // server báo "is being accessed by other users"), và không thể chạy từ chính nó.
+        let dropping = drop_database_target(sql);
+        if let Some(target) = &dropping {
+            if *target == db {
+                anyhow::bail!("Can't drop \"{target}\" while running in it — switch to another database first.");
+            }
+            self.clients.lock().await.remove(target);
+        }
         let c = self.client(&db).await?;
         *self.running.lock().unwrap() = Some(c.client.cancel_token());
-        let res = self.run(&c.client, sql, limit).await;
+        let mut res = self.run(&c.client, sql, limit).await;
+        // Server có thể chưa kịp thấy kết nối vừa đóng → thử lại vài lần.
+        for _ in 0..10 {
+            match &res {
+                Err(e) if dropping.is_some() && e.to_string().contains("being accessed by other users") => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    res = self.run(&c.client, sql, limit).await;
+                }
+                _ => break,
+            }
+        }
         *self.running.lock().unwrap() = None;
         Ok((res?, Some(db)))
     }

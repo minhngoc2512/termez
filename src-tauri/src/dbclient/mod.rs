@@ -902,6 +902,47 @@ mod tests {
         assert!(m.query(&ro, None, "db.runCommand({ ping: 1 })", 10).await.is_ok());
     }
 
+    /// DROP DATABASE khi phiên đang giữ client tới database đó (PostgreSQL).
+    #[tokio::test]
+    #[ignore]
+    async fn postgres_drop_database_in_use_by_session() {
+        let Some(s) = spec("TERMEZ_TEST_PG", "postgres", "shop", false) else { return };
+        let m = DbManager::new();
+        let id = m.open(s, None).await.unwrap().session_id;
+        let _ = m.query(&id, None, "DROP DATABASE IF EXISTS termez_drop", 10).await;
+        m.query(&id, None, "CREATE DATABASE termez_drop", 10).await.expect("create");
+        m.query(&id, Some("termez_drop".into()), "CREATE TABLE t (id int)", 10).await.expect("use new db");
+        assert!(m.query(&id, Some("termez_drop".into()), "DROP DATABASE termez_drop", 10).await.is_err(), "không chạy từ chính nó");
+        m.query(&id, None, "DROP DATABASE \"termez_drop\";", 10).await.expect("drop while cached");
+        let dbs = m.tree(&id, &[]).await.unwrap();
+        assert!(!dbs.iter().any(|n| n.name == "termez_drop"));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn mongo_ddl() {
+        let Some(s) = spec("TERMEZ_TEST_MONGO", "mongodb", "shop", false) else { return };
+        let m = DbManager::new();
+        let id = m.open(s, None).await.unwrap().session_id;
+        let db = Some("termez_ddl".to_string());
+        let _ = m.query(&id, db.clone(), "db.dropDatabase()", 10).await;
+        m.query(&id, db.clone(), "db.createCollection(\"people\")", 10).await.expect("create collection");
+        let out = m
+            .query(&id, db.clone(), "db.people.createIndex({ email: 1, age: -1 }, { name: \"uq_email\", unique: true })", 10)
+            .await
+            .expect("create index");
+        assert_eq!(out.results[0].rows[0][0].as_deref(), Some("uq_email"));
+        let out = m.query(&id, db.clone(), "db.people.getIndexes()", 10).await.unwrap();
+        let names: Vec<_> = out.results[0].columns.iter().map(|c| c.name.as_str()).collect();
+        let ni = names.iter().position(|c| *c == "name").expect("name column");
+        let ui = names.iter().position(|c| *c == "unique").expect("unique column");
+        let row = out.results[0].rows.iter().find(|r| r[ni].as_deref() == Some("uq_email")).expect("index listed");
+        assert_eq!(row[ui].as_deref(), Some("true"));
+        assert!(m.query(&id, db.clone(), "db.people.insertMany([{ email: 'a' }, { email: 'a' }])", 10).await.is_err(), "unique");
+        m.query(&id, db.clone(), "db.people.dropIndex(\"uq_email\")", 10).await.expect("drop index");
+        m.query(&id, db.clone(), "db.dropDatabase()", 10).await.expect("drop db");
+    }
+
     #[tokio::test]
     #[ignore]
     async fn monitor_mongo() {

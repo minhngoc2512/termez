@@ -171,6 +171,18 @@ export async function run(panelId: string, sql: string, database?: string | null
   }
 }
 
+/**
+ * Chạy một câu lệnh ngoài editor (tạo/xoá database, bảng, index…): không đụng tới
+ * câu SQL đang soạn hay lưới kết quả; vẫn ghi vào lịch sử. Lỗi → ném ra.
+ */
+export async function exec(panelId: string, sql: string, database: string | null): Promise<DbQueryOutput> {
+  const p = panes.get(panelId);
+  if (!p?.session) throw new Error("Not connected");
+  const out = await api.dbQuery(p.session.session_id, database, sql, 1000);
+  pushHistory(p.connId, sql);
+  return out;
+}
+
 /** Mặc định mở tập kết quả cuối có cột (thường là SELECT cuối cùng). */
 function lastWithRows(o: DbQueryOutput): number {
   for (let i = o.results.length - 1; i >= 0; i--) if (o.results[i].columns.length) return i;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw, KeyRound, Info, FileJson } from "lucide-react";
+import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw, KeyRound, Info, FileJson, Plus } from "lucide-react";
 import * as dbPool from "../../lib/dbPool";
 import type { DbPane } from "../../lib/dbPool";
 import type { DbTreeNode } from "../../lib/ipc";
@@ -11,6 +11,10 @@ const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, co
 export interface TreeMenuAction {
   label: string;
   run: () => void;
+  /** Thao tác phá dữ liệu (chữ đỏ). */
+  danger?: boolean;
+  /** Kẻ ngăn cách phía trên mục này. */
+  separator?: boolean;
 }
 
 interface Props {
@@ -20,9 +24,12 @@ interface Props {
   onOpenNode: (node: DbTreeNode, path: string[]) => void;
   /** Menu chuột phải cho một node. */
   menuFor: (node: DbTreeNode, path: string[]) => TreeMenuAction[];
+  /** Nút "+" ở đầu cây (tạo database); bỏ trống = ẩn. */
+  onNewDatabase?: () => void;
+  newDatabaseLabel?: string;
 }
 
-export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
+export function SchemaTree({ panelId, pane, onOpenNode, menuFor, onNewDatabase, newDatabaseLabel }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: TreeMenuAction[] } | null>(null);
 
   useEffect(() => {
@@ -77,7 +84,9 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
             onContextMenu={(e) => {
               e.preventDefault();
               const items = menuFor(n, p);
-              if (items.length) setMenu({ x: e.clientX, y: e.clientY, items });
+              // Giữ menu trong cửa sổ khi bấm gần đáy.
+              const h = items.length * 32 + 16;
+              if (items.length) setMenu({ x: e.clientX, y: Math.max(8, Math.min(e.clientY, window.innerHeight - h)), items });
             }}
             className="group flex cursor-pointer select-none items-center gap-1 rounded py-[3px] pr-2 text-[13px] hover:bg-accent"
             style={{ paddingLeft: 6 + depth * 14 }}
@@ -114,6 +123,15 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
             {pane.showAll ? "All databases" : "Show all"}
           </button>
         )}
+        {onNewDatabase && (
+          <button
+            title={newDatabaseLabel ?? "New database"}
+            onClick={onNewDatabase}
+            className={cn("rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground", !configured && "ml-auto")}
+          >
+            <Plus className="size-3.5" />
+          </button>
+        )}
         <button
           title="Refresh"
           onClick={() => dbPool.refreshTree(panelId)}
@@ -137,16 +155,18 @@ export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
           onMouseDown={(e) => e.stopPropagation()}
         >
           {menu.items.map((it) => (
-            <button
-              key={it.label}
-              onClick={() => {
-                setMenu(null);
-                it.run();
-              }}
-              className="block w-full px-3 py-1.5 text-left hover:bg-accent"
-            >
-              {it.label}
-            </button>
+            <div key={it.label}>
+              {it.separator && <div className="my-1 h-px bg-border" />}
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  it.run();
+                }}
+                className={cn("block w-full px-3 py-1.5 text-left hover:bg-accent", it.danger && "text-destructive")}
+              >
+                {it.label}
+              </button>
+            </div>
           ))}
         </div>
       )}

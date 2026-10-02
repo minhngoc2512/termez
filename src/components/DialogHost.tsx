@@ -41,7 +41,7 @@ export function DialogHost() {
 
         {cur?.kind === "prompt" ? (
           <>
-            {cur.opts.message && <p className="text-sm text-muted-foreground">{cur.opts.message}</p>}
+            {cur.opts.message && <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{cur.opts.message}</p>}
             <Input
               autoFocus
               value={value}

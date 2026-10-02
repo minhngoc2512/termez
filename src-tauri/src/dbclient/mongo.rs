@@ -354,6 +354,15 @@ impl MongoSession {
                     single("collection", names.into_iter().map(Some).collect())
                 }
                 "stats" => kv_set(&db.run_command(doc! { "dbStats": 1 }).await?),
+                "createCollection" => {
+                    let name = args.first().and_then(Bson::as_str).ok_or_else(|| anyhow::anyhow!("createCollection(\"name\")"))?;
+                    let mut cmd = doc! { "create": name };
+                    for (k, v) in as_doc(args.get(1), "options")? {
+                        cmd.insert(k, v);
+                    }
+                    db.run_command(cmd).await?;
+                    single("result", vec![Some(format!("created {dbname}.{name}"))])
+                }
                 "serverStatus" => kv_set(&self.db("admin").run_command(doc! { "serverStatus": 1 }).await?),
                 "version" => {
                     let info = self.db("admin").run_command(doc! { "buildInfo": 1 }).await?;
@@ -482,9 +491,17 @@ impl MongoSession {
                         docs_to_set(docs, limit)
                     }
                     "createIndex" => {
-                        let model = mongodb::IndexModel::builder().keys(arg_doc(0, "keys")?).build();
-                        let r = c.create_index(model).await?;
-                        single("index", vec![Some(r.index_name)])
+                        // createIndex(keys, { unique, name, sparse, expireAfterSeconds, … }) như mongo shell.
+                        let keys = arg_doc(0, "keys")?;
+                        let mut spec = as_doc(args.get(1), "options")?;
+                        if !spec.contains_key("name") {
+                            let name: Vec<String> = keys.iter().map(|(k, v)| format!("{k}_{}", show(v).unwrap_or_default())).collect();
+                            spec.insert("name", name.join("_"));
+                        }
+                        let name = spec.get_str("name").unwrap_or_default().to_string();
+                        spec.insert("key", keys);
+                        db.run_command(doc! { "createIndexes": &coll, "indexes": [spec] }).await?;
+                        single("index", vec![Some(name)])
                     }
                     "dropIndex" => {
                         let name = args.first().and_then(Bson::as_str).ok_or_else(|| anyhow::anyhow!("dropIndex(\"name\")"))?;

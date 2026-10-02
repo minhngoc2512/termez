@@ -3,7 +3,9 @@ import { Play, ListChecks, Square, History, Download, Loader2, AlertTriangle, Ro
 import * as dbPool from "../../lib/dbPool";
 import type { DbKind, DbTreeNode } from "../../lib/ipc";
 import { dialectOf, qualifiedTable, quoteIdent, dangerousStatements, toCsv, toJson } from "../../lib/sql";
-import { confirmDialog, alertDialog } from "../../lib/dialogs";
+import { confirmDialog, alertDialog, promptDialog } from "../../lib/dialogs";
+import * as ddl from "../../lib/ddl";
+import { DdlHost, DdlRequest } from "./DdlDialogs";
 import { copyText } from "../../lib/clipboard";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 import { ResultGrid } from "./ResultGrid";
@@ -33,12 +35,6 @@ const KIND_LABEL: Record<DbKind, string> = {
   mongodb: "MongoDB",
 };
 
-/** Collection trong mongo shell: db.name nếu là định danh hợp lệ, không thì db.getCollection("…"). */
-function mongoColl(name: string): string {
-  return /^[A-Za-z_$][\w$]*$/.test(name) && !["getCollection", "runCommand", "stats"].includes(name)
-    ? `db.${name}`
-    : `db.getCollection(${JSON.stringify(name)})`;
-}
 
 /** Bao key Redis cho console khi có khoảng trắng / nháy. */
 function redisArg(k: string): string {
@@ -70,6 +66,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   const [editorH, setEditorH] = useState(38); // % chiều cao
   const split = useRef<HTMLDivElement>(null);
   const d = dialectOf(kind);
+  const [ddlReq, setDdlReq] = useState<DdlRequest | null>(null);
 
   // Gợi ý tự động: bảng (và cột đã mở) của database đang chọn.
   const schema = useMemo(() => {
@@ -121,7 +118,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
 
   function openNode(n: DbTreeNode, path: string[]) {
     if (n.kind === "collection") {
-      const sql = `${mongoColl(n.name)}.find({}).limit(100)`;
+      const sql = `${ddl.mongoColl(n.name)}.find({}).limit(100)`;
       dbPool.update(panelId, { sql });
       return void run(false, sql, path[0]);
     }
@@ -131,7 +128,120 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
     void run(false, sql, path[0]);
   }
 
+  /** Xác nhận thao tác phá dữ liệu bằng cách gõ lại tên. */
+  async function confirmTyped(title: string, stmt: string, name: string, verb: string): Promise<boolean> {
+    const v = await promptDialog({
+      title,
+      message: `${stmt}\n\nThis can't be undone. Type "${name}" to confirm.`,
+      placeholder: name,
+      confirmText: verb,
+      danger: true,
+    });
+    if (v === null) return false;
+    if (v.trim() !== name) {
+      await alertDialog({ title: "Not confirmed", message: `The name didn't match "${name}" — nothing was changed.` });
+      return false;
+    }
+    return true;
+  }
+
+  async function execOrAlert(stmt: string, database: string | null): Promise<boolean> {
+    try {
+      await dbPool.exec(panelId, stmt, database);
+      return true;
+    } catch (e) {
+      await alertDialog({ title: "Failed", message: String(e) });
+      return false;
+    }
+  }
+
+  async function dropDatabase(name: string) {
+    const stmt = ddl.dropDatabase(d, name);
+    const label = d === "redis" ? `Flush ${name}` : `Drop database ${name}`;
+    if (!(await confirmTyped(`${label}?`, d === "redis" ? `${stmt}   (deletes every key in ${name})` : stmt, name, d === "redis" ? "Flush" : "Drop"))) return;
+    const home = pane?.session?.database ?? null;
+    // Câu lệnh chạy ở đâu: MongoDB/Redis trong chính database đó; PostgreSQL phải từ
+    // database khác; ClickHouse từ "system".
+    const from =
+      d === "mongodb" || d === "redis"
+        ? name
+        : d === "postgres"
+          ? home !== name
+            ? home
+            : name !== "postgres"
+              ? "postgres"
+              : "template1"
+          : d === "clickhouse"
+            ? "system"
+            : null;
+    if (!(await execOrAlert(stmt, from))) return;
+    if (pane?.database === name && d !== "redis") dbPool.update(panelId, { database: home !== name ? home : null });
+    dbPool.refreshTree(panelId);
+  }
+
+  async function dropSchema(path: string[]) {
+    const stmt = ddl.dropSchema(path[1]);
+    if (!(await confirmTyped(`Drop schema ${path[1]}?`, stmt, path[1], "Drop"))) return;
+    if (await execOrAlert(stmt, path[0])) void dbPool.loadChildren(panelId, [path[0]]);
+  }
+
+  async function truncate(path: string[]) {
+    const name = path[path.length - 1];
+    const stmt = ddl.truncateTable(d, path);
+    const what = d === "mongodb" ? `Delete all documents in ${name}` : `Truncate ${name}`;
+    if (!(await confirmTyped(`${what}?`, stmt, name, d === "mongodb" ? "Delete all" : "Truncate"))) return;
+    if (await execOrAlert(stmt, path[0])) void dbPool.loadChildren(panelId, path);
+  }
+
+  async function dropTable(path: string[], view: boolean) {
+    const name = path[path.length - 1];
+    const stmt = ddl.dropTable(d, path, view);
+    const what = d === "mongodb" ? "collection" : view ? "view" : "table";
+    if (!(await confirmTyped(`Drop ${what} ${name}?`, stmt, name, "Drop"))) return;
+    if (await execOrAlert(stmt, path[0])) void dbPool.loadChildren(panelId, path.slice(0, -1));
+  }
+
+  function openInEditor(sql: string, database: string | null) {
+    dbPool.update(panelId, { sql, ...(database ? { database } : {}) });
+    editor.current?.focus();
+  }
+
+  /** Mục quản lý cấu trúc (ẩn với kết nối read-only). */
+  function ddlItems(n: DbTreeNode, path: string[]): TreeMenuAction[] {
+    if (pane?.session?.read_only) return [];
+    const tableWord = d === "mongodb" ? "collection" : "table";
+    switch (n.kind) {
+      case "database":
+        if (d === "redis") return [{ label: "Flush database…", run: () => dropDatabase(n.name), danger: true, separator: true }];
+        return [
+          d === "postgres"
+            ? { label: "New schema…", run: () => setDdlReq({ type: "createSchema", database: n.name }), separator: true }
+            : { label: `New ${tableWord}…`, run: () => setDdlReq({ type: "createTable", base: path }), separator: true },
+          { label: "Drop database…", run: () => dropDatabase(n.name), danger: true },
+        ];
+      case "schema":
+        return [
+          { label: "New table…", run: () => setDdlReq({ type: "createTable", base: path }), separator: true },
+          { label: "Drop schema…", run: () => dropSchema(path), danger: true },
+        ];
+      case "table":
+      case "collection":
+        return [
+          { label: d === "mongodb" ? "Delete all documents…" : "Truncate table…", run: () => truncate(path), danger: true, separator: true },
+          { label: `Drop ${tableWord}…`, run: () => dropTable(path, false), danger: true },
+        ];
+      case "view":
+        return [{ label: "Drop view…", run: () => dropTable(path, true), danger: true, separator: true }];
+      default:
+        return [];
+    }
+  }
+
   function menuFor(n: DbTreeNode, path: string[]): TreeMenuAction[] {
+    return [...baseMenu(n, path), ...ddlItems(n, path)];
+  }
+
+  function baseMenu(n: DbTreeNode, path: string[]): TreeMenuAction[] {
     const items: TreeMenuAction[] = [];
     if (n.kind === "key") {
       const k = redisArg(n.name);
@@ -156,7 +266,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
     }
     if (n.kind === "info") return [];
     if (n.kind === "collection") {
-      const c = mongoColl(n.name);
+      const c = ddl.mongoColl(n.name);
       const exec = (sql: string) => {
         dbPool.update(panelId, { sql });
         void run(false, sql, path[0]);
@@ -164,8 +274,8 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
       return [
         { label: "Find first 100 documents", run: () => openNode(n, path) },
         { label: "Count documents", run: () => exec(`${c}.countDocuments({})`) },
-        { label: "Show indexes", run: () => exec(`${c}.getIndexes()`) },
         { label: "Collection stats", run: () => exec(`${c}.stats()`) },
+        { label: "Indexes…", run: () => setDdlReq({ type: "indexes", path }) },
         { label: "Copy name", run: () => copyText(n.name).catch(() => {}) },
         { label: "Refresh fields", run: () => void dbPool.loadChildren(panelId, path) },
       ];
@@ -181,6 +291,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           void run(false, sql, path[0]);
         },
       });
+      if (n.kind === "table") items.push({ label: "Indexes…", run: () => setDdlReq({ type: "indexes", path }) });
       items.push({ label: "Copy qualified name", run: () => copyText(q).catch(() => {}) });
     }
     if (n.kind === "column")
@@ -252,7 +363,13 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   return (
     <div className="flex h-full bg-background text-foreground">
       <div className="shrink-0 border-r border-border bg-sidebar" style={{ width: treeW }}>
-        <SchemaTree panelId={panelId} pane={pane} onOpenNode={openNode} menuFor={menuFor} />
+        <SchemaTree
+          panelId={panelId}
+          pane={pane}
+          onOpenNode={openNode}
+          menuFor={menuFor}
+          onNewDatabase={pane.session?.read_only || d === "redis" ? undefined : () => setDdlReq({ type: "createDatabase" })}
+        />
       </div>
       <div className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40" onMouseDown={dragTree} />
 
@@ -431,6 +548,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
           </div>
         </div>
       </div>
+      <DdlHost panelId={panelId} d={d} req={ddlReq} onClose={() => setDdlReq(null)} onOpenInEditor={openInEditor} />
     </div>
   );
 }
