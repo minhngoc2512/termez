@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Loader2, Pause, Play, TriangleAlert, RotateCw, Lock, OctagonX, HardDrive } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Pause, Play, TriangleAlert, RotateCw, Lock, OctagonX, HardDrive, ScrollText, Search, Trash2, Copy, Check } from "lucide-react";
+import { copyText } from "../../lib/clipboard";
 import { api, DbKind, DbMonitorSnapshot, DbSessionInfo } from "../../lib/ipc";
 import { confirmDialog, alertDialog } from "../../lib/dialogs";
 import { Card, fmtBytes, fmtUptime } from "../MonitorView";
@@ -32,6 +33,10 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
   const prev = useRef<{ vals: Vals; at: number } | null>(null);
   const lastBreakdown = useRef(0);
   const pollNow = useRef<() => void>(() => {});
+  // Query log: mọi câu đã thấy trong bảng "Running queries" từ lúc mở Monitor
+  // (chỉ trong bộ nhớ của tab này, không giới hạn số lượng, không lưu xuống đĩa).
+  const queryLog = useRef<Map<string, LoggedQuery>>(new Map());
+  const [logVersion, setLogVersion] = useState(0);
 
   // Mở phiên riêng cho Monitor; đóng khi rời tab.
   useEffect(() => {
@@ -78,6 +83,7 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           setBreakdown(s.breakdown);
           lastBreakdown.current = now;
         }
+        if (collectQueries(queryLog.current, s, now)) setLogVersion((v) => v + 1);
         setDerived(d);
         setSnap(s);
         setError(null);
@@ -200,11 +206,11 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
 
         {/* Phân bổ: dung lượng / số key theo database */}
         {breakdown && breakdown.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="rounded-xl border border-border bg-card">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <HardDrive className="size-4" /> {spec.breakdownTitle}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 px-4 py-3">
               {breakdown.map(([label, v]) => (
                 <div key={label} className="flex items-center gap-3 text-sm">
                   <span className="w-48 shrink-0 truncate font-mono text-xs" title={label}>
@@ -277,7 +283,167 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           </div>
         ))}
 
+        {hasQueryLog(snap) && (
+          <QueryLogPanel
+            log={queryLog.current}
+            version={logVersion}
+            interval={interval}
+            onClear={() => {
+              queryLog.current.clear();
+              setLogVersion((v) => v + 1);
+            }}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+interface LoggedQuery {
+  key: string;
+  query: string;
+  user: string | null;
+  db: string | null;
+  firstSeen: number;
+  lastSeen: number;
+  /** Thời gian chạy lớn nhất thấy được (giây). */
+  maxElapsed: number;
+}
+
+/** Bảng đầu tiên có cột "query" (SQL DB); Redis không có → không có query log. */
+function hasQueryLog(s: DbMonitorSnapshot): boolean {
+  return s.tables.some((t) => t.columns.includes("query"));
+}
+
+/** Gom các câu đang chạy vào log; trả về true nếu log thay đổi. */
+function collectQueries(log: Map<string, LoggedQuery>, s: DbMonitorSnapshot, now: number): boolean {
+  const t = s.tables.find((t) => t.columns.includes("query"));
+  if (!t) return false;
+  const col = (...names: string[]) => t.columns.findIndex((c) => names.includes(c));
+  const qi = col("query");
+  const ui = col("user");
+  const di = col("db", "database");
+  const ti = col("time (s)", "elapsed (s)");
+  let changed = false;
+  for (const r of t.rows) {
+    const query = r.cells[qi];
+    if (!query) continue;
+    // Cùng id + cùng nội dung = cùng một lần chạy (id có thể được dùng lại cho câu khác).
+    const key = `${r.id ?? ""}\u0000${query}`;
+    const elapsed = ti >= 0 ? Number(r.cells[ti] ?? 0) || 0 : 0;
+    const cur = log.get(key);
+    if (cur) {
+      cur.lastSeen = now;
+      if (elapsed > cur.maxElapsed) cur.maxElapsed = elapsed;
+    } else {
+      log.set(key, { key, query, user: ui >= 0 ? r.cells[ui] : null, db: di >= 0 ? r.cells[di] : null, firstSeen: now, lastSeen: now, maxElapsed: elapsed });
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+const PAGE = 200; // vẽ tối đa ngần này dòng mỗi lần (log thì không giới hạn)
+
+function QueryLogPanel({
+  log,
+  version,
+  interval,
+  onClear,
+}: {
+  log: Map<string, LoggedQuery>;
+  version: number;
+  interval: number;
+  onClear: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // Mới thấy trước; lọc theo nội dung / user / database.
+  const list = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const all = [...log.values()].sort((a, b) => b.firstSeen - a.firstSeen);
+    return s ? all.filter((e) => [e.query, e.user ?? "", e.db ?? ""].some((v) => v.toLowerCase().includes(s))) : all;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [log, version, q]);
+
+  function copy(e: LoggedQuery) {
+    copyText(e.query)
+      .then(() => {
+        setCopied(e.key);
+        setTimeout(() => setCopied((c) => (c === e.key ? null : c)), 1200);
+      })
+      .catch(() => {});
+  }
+
+  const time = (ms: number) => new Date(ms).toLocaleTimeString();
+
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <ScrollText className="size-4" /> Query log <span className="font-normal normal-case">({log.size})</span>
+        </span>
+        <span className="text-[11px] text-muted-foreground" title="Queries are captured from the running list on every refresh">
+          seen since this monitor opened · queries shorter than {interval}s may be missed
+        </span>
+        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-input bg-background px-2">
+          <Search className="size-3.5 text-muted-foreground" />
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setShown(PAGE);
+            }}
+            placeholder="Search query, user, database…"
+            className="w-56 bg-transparent py-1 text-xs outline-none"
+          />
+        </div>
+        <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={log.size === 0} onClick={onClear}>
+          <Trash2 className="size-3.5" /> Clear
+        </Button>
+      </div>
+      {list.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">{log.size === 0 ? "No queries captured yet." : "No queries match."}</p>
+      ) : (
+        <div className="max-h-[32rem] overflow-y-auto">
+          {list.slice(0, shown).map((e) => {
+            const expanded = open === e.key;
+            return (
+              <div key={e.key} className="border-t border-border/60 px-4 py-2 first:border-t-0 hover:bg-accent/30">
+                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                  <span title={`last seen ${time(e.lastSeen)}`}>{time(e.firstSeen)}</span>
+                  {e.user && <span>{e.user}</span>}
+                  {e.db && <span className="font-mono">{e.db}</span>}
+                  <span>{e.maxElapsed > 0 ? `≥ ${e.maxElapsed}s` : "< refresh interval"}</span>
+                  <span className="ml-auto flex gap-1">
+                    <button onClick={() => setOpen(expanded ? null : e.key)} className="rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground">
+                      {expanded ? "Collapse" : "Expand"}
+                    </button>
+                    <button onClick={() => copy(e)} className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent hover:text-foreground">
+                      {copied === e.key ? <Check className="size-3 text-primary" /> : <Copy className="size-3" />}
+                      {copied === e.key ? "Copied" : "Copy"}
+                    </button>
+                  </span>
+                </div>
+                <pre
+                  className={cn("selectable mt-1 font-mono text-xs text-foreground", expanded ? "whitespace-pre-wrap break-all" : "truncate")}
+                  onDoubleClick={() => setOpen(expanded ? null : e.key)}
+                >
+                  {e.query}
+                </pre>
+              </div>
+            );
+          })}
+          {list.length > shown && (
+            <button onClick={() => setShown((n) => n + PAGE)} className="w-full border-t border-border py-2 text-xs text-primary hover:bg-accent/40">
+              Show {Math.min(PAGE, list.length - shown)} more ({list.length - shown} left)
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
