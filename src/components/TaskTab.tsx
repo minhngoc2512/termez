@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { copyText } from "../lib/clipboard";
 import { cn } from "../lib/utils";
 
-export type TaskItem = { id: string; name: string; isWs: boolean; hostId?: string };
+export type TaskItem = { id: string; name: string; isWs: boolean; hostId?: string; connId?: string };
 
 /**
  * Một mục trên thanh TASK (ngoài dockview). Nếu là task của một host lẻ:
@@ -58,7 +58,7 @@ export function TaskTab({
   }, [menu]);
 
   function onContextMenu(e: React.MouseEvent) {
-    if (!host) return; // chỉ task của host mới có menu
+    if (!host && !task.connId) return; // chỉ task của một host / một kết nối database mới có menu
     e.preventDefault();
     e.stopPropagation();
     setPos(null);
@@ -139,7 +139,9 @@ export function TaskTab({
           >
             <MenuItem icon={<CopyPlus className="size-4" />} label="Duplicate" onClick={() => { setMenu(null); onDuplicate(task.id); }} />
             <MenuItem icon={<Columns2 className="size-4" />} label="Split" onClick={() => { setMenu(null); onSplit(task.id); }} />
-            <MenuItem icon={<ExternalLink className="size-4" />} label="Duplicate in a new window" onClick={() => { setMenu(null); if (task.hostId) onDuplicateWindow(task.hostId, task.name); }} />
+            {task.hostId && (
+              <MenuItem icon={<ExternalLink className="size-4" />} label="Duplicate in a new window" onClick={() => { setMenu(null); if (task.hostId) onDuplicateWindow(task.hostId, task.name); }} />
+            )}
             <div className="my-1 h-px bg-border" />
             <MenuItem icon={<X className="size-4" />} label="Close" onClick={() => { setMenu(null); onClose(task.id); }} />
           </div>,

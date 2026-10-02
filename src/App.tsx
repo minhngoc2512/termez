@@ -34,7 +34,7 @@ import * as terminalPool from "./lib/terminalPool";
 import { DialogHost } from "./components/DialogHost";
 import { LockScreen } from "./components/LockScreen";
 import { UpdateManager } from "./components/UpdateManager";
-import { HostPicker } from "./components/HostPicker";
+import { HostPicker, PickerMode } from "./components/HostPicker";
 import { ConnectStatus } from "./components/ConnectStatus";
 import type { ConnStatus } from "./lib/terminalPool";
 import { hostActions } from "./lib/hostActions";
@@ -109,9 +109,11 @@ export default function App() {
   const [keysOpen, setKeysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Popup "+" mở danh sách theo loại task đang xem (SSH host hoặc kết nối database).
+  const [pickerMode, setPickerMode] = useState<PickerMode>("hosts");
   const [conn, setConn] = useState<ConnStatus | null>(null);
   // Danh sách các phiên/tab đang mở (terminal, SFTP, monitor…) để quay lại nhanh.
-  const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string }[]>([]);
+  const [sessions, setSessions] = useState<{ id: string; title: string; hostId?: string; connId?: string }[]>([]);
   const [split, setSplit] = useState(false);
   // Mỗi TASK = một layout dockview riêng. Task 1 pane = host lẻ; task nhiều pane
   // (split) = "Workspace". Mở host = task mới; kéo task này vào task kia = gộp thành workspace.
@@ -282,6 +284,7 @@ export default function App() {
         id: p.id,
         title: p.title || "shell",
         hostId: (p.params as { hostId?: string } | undefined)?.hostId,
+        connId: (p.params as { connId?: string } | undefined)?.connId,
       }))
     );
   }
@@ -405,21 +408,26 @@ export default function App() {
     setTasks((t) => t.filter((x) => x.id !== sourceId));
   }
 
-  // Từ thanh task: mở thêm một shell của host trong task đó.
-  // tabbed = tab mới cùng nhóm; ngược lại chia đôi (side-by-side) → thành workspace.
+  // Từ thanh task: mở thêm một shell của host (hoặc một pane cùng kết nối database)
+  // trong task đó. tabbed = tab mới cùng nhóm; ngược lại chia đôi → thành workspace.
   function duplicateTask(id: string, tabbed: boolean) {
     switchTask(id); // loadLayout chạy đồng bộ nên apiRef đã có panes của task này
     const api = apiRef.current;
     if (!api) return;
-    const host = api.panels.find((p) => (p.params as { hostId?: string } | undefined)?.hostId);
-    if (!host) return;
+    const src = api.panels.find((p) => {
+      const params = p.params as { hostId?: string; connId?: string } | undefined;
+      return params?.hostId || params?.connId;
+    });
+    if (!src) return;
+    const isDb = !!(src.params as { connId?: string } | undefined)?.connId;
     api.addPanel({
       id: crypto.randomUUID(),
-      component: "terminal",
+      // Pane database (kể cả Monitor) → thêm pane truy vấn cùng kết nối, phiên riêng.
+      component: isDb ? "db" : "terminal",
       tabComponent: "info",
-      title: host.title || "shell",
-      params: (host.params ?? {}) as Record<string, unknown>,
-      position: tabbed ? undefined : { referencePanel: host.id, direction: "right" },
+      title: (isDb ? src.title?.replace(/ · Monitor$/, "") : src.title) || "shell",
+      params: (src.params ?? {}) as Record<string, unknown>,
+      position: tabbed ? undefined : { referencePanel: src.id, direction: "right" },
     });
   }
 
@@ -558,12 +566,12 @@ export default function App() {
   // Tên hiển thị của từng task: 1 pane → tên host; nhiều pane → "Workspace N".
   let wsNum = 0;
   const taskDisplay = tasks.map((t) => {
-    const panes: { title: string; hostId?: string }[] =
+    const panes: { title: string; hostId?: string; connId?: string }[] =
       t.id === activeTask
-        ? sessions.map((s) => ({ title: s.title, hostId: s.hostId }))
+        ? sessions.map((s) => ({ title: s.title, hostId: s.hostId, connId: s.connId }))
         : Object.values(taskLayouts.current.get(t.id)?.panels ?? {}).map((p) => {
-            const pp = p as { title?: string; params?: { hostId?: string } };
-            return { title: pp.title || "shell", hostId: pp.params?.hostId };
+            const pp = p as { title?: string; params?: { hostId?: string; connId?: string } };
+            return { title: pp.title || "shell", hostId: pp.params?.hostId, connId: pp.params?.connId };
           });
     let name: string;
     let isWs = false;
@@ -575,7 +583,9 @@ export default function App() {
     }
     // Task 1 pane của một host → cho phép hover xem IP / menu Duplicate·Split.
     const hostId = panes.length === 1 ? panes[0]?.hostId : undefined;
-    return { id: t.id, name, isWs, hostId };
+    // Task 1 pane database → menu Duplicate·Split (thêm pane cùng kết nối).
+    const connId = panes.length === 1 ? panes[0]?.connId : undefined;
+    return { id: t.id, name, isWs, hostId, connId };
   });
 
   // Khi khóa: KHÔNG gỡ giao diện chính (gỡ DockviewReact = mất layout task đang mở,
@@ -647,8 +657,12 @@ export default function App() {
                     />
                   ))}
                   <button
-                    onClick={() => setPickerOpen(true)}
-                    title="Open a new SSH session"
+                    onClick={() => {
+                      const db = apiRef.current?.panels.some((p) => (p.params as { connId?: string } | undefined)?.connId);
+                      setPickerMode(db ? "databases" : "hosts");
+                      setPickerOpen(true);
+                    }}
+                    title="Open a new SSH session or database connection"
                     className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
                     <Plus className="size-4" />
@@ -701,7 +715,7 @@ export default function App() {
         <SyncGuardDialog />
         <DialogHost />
         <UpdateManager />
-        <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />
+        <HostPicker open={pickerOpen} mode={pickerMode} onOpenChange={setPickerOpen} onPick={openHost} onPickDb={openDb} />
         <ConnectStatus status={conn} onRetry={retryConn} onExit={exitConn} />
       </div>
       {locked && <LockScreen onUnlock={() => setLocked(false)} />}
