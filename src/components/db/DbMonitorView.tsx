@@ -198,7 +198,30 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           })}
         </div>
 
-        {/* Bảng hoạt động: query đang chạy / client / slow log */}
+        {/* Phân bổ: dung lượng / số key theo database */}
+        {breakdown && breakdown.length > 0 && (
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <HardDrive className="size-4" /> {spec.breakdownTitle}
+            </div>
+            <div className="space-y-1.5">
+              {breakdown.map(([label, v]) => (
+                <div key={label} className="flex items-center gap-3 text-sm">
+                  <span className="w-48 shrink-0 truncate font-mono text-xs" title={label}>
+                    {label}
+                  </span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full bg-primary" style={{ width: `${(v / maxBreak) * 100}%` }} />
+                  </div>
+                  <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
+                    {spec.breakdownUnit === "bytes" ? fmtBytes(v) : `${fmtNum(v)} keys`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Bảng hoạt động để cuối: danh sách đổi liên tục không đẩy phần trên nhảy theo */}
         {snap.tables.map((t) => (
           <div key={t.title} className="rounded-xl border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -254,29 +277,6 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           </div>
         ))}
 
-        {/* Phân bổ: dung lượng / số key theo database */}
-        {breakdown && breakdown.length > 0 && (
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              <HardDrive className="size-4" /> {spec.breakdownTitle}
-            </div>
-            <div className="space-y-1.5">
-              {breakdown.map(([label, v]) => (
-                <div key={label} className="flex items-center gap-3 text-sm">
-                  <span className="w-48 shrink-0 truncate font-mono text-xs" title={label}>
-                    {label}
-                  </span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full bg-primary" style={{ width: `${(v / maxBreak) * 100}%` }} />
-                  </div>
-                  <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
-                    {spec.breakdownUnit === "bytes" ? fmtBytes(v) : `${fmtNum(v)} keys`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
