@@ -214,7 +214,7 @@ export interface CfInput {
   comment?: string | null;
 }
 
-export type DbKind = "mysql" | "mariadb" | "postgres";
+export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
 export interface DbConnection {
@@ -229,8 +229,15 @@ export interface DbConnection {
   ssl_mode: DbSslMode;
   read_only: boolean;
   options: string | null;
+  group_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface DbGroup {
+  id: string;
+  name: string;
+  created_at: number;
 }
 
 export interface DbConnectionInput {
@@ -247,6 +254,7 @@ export interface DbConnectionInput {
   ssl_mode: DbSslMode;
   read_only: boolean;
   options: string | null;
+  group_id: string | null;
 }
 
 export interface DbSessionInfo {
@@ -254,11 +262,12 @@ export interface DbSessionInfo {
   kind: DbKind;
   database: string | null;
   server_version: string;
+  read_only: boolean;
 }
 
 export interface DbTreeNode {
   name: string;
-  kind: "database" | "schema" | "table" | "view" | "column";
+  kind: "database" | "schema" | "table" | "view" | "column" | "key" | "info";
   detail: string | null;
   leaf: boolean;
 }
@@ -417,6 +426,12 @@ export const api = {
   upsertDbConnection: (input: DbConnectionInput) => invoke<DbConnection>("upsert_db_connection", { input }),
   deleteDbConnection: (id: string) => invoke<void>("delete_db_connection", { id }),
   dbTest: (input: DbConnectionInput) => invoke<string>("db_test", { input }),
+  dbListDatabases: (input: DbConnectionInput) => invoke<string[]>("db_list_databases", { input }),
+  getDbGroups: () => invoke<DbGroup[]>("get_db_groups"),
+  upsertDbGroup: (id: string | null, name: string) => invoke<DbGroup>("upsert_db_group", { id, name }),
+  deleteDbGroup: (id: string) => invoke<void>("delete_db_group", { id }),
+  setDbConnectionGroup: (id: string, groupId: string | null) =>
+    invoke<void>("set_db_connection_group", { id, groupId }),
   dbOpen: (connId: string) => invoke<DbSessionInfo>("db_open", { connId }),
   dbClose: (sessionId: string) => invoke<void>("db_close", { sessionId }),
   dbTree: (sessionId: string, path: string[]) => invoke<DbTreeNode[]>("db_tree", { sessionId, path }),

@@ -3,15 +3,16 @@
 // với chuỗi, định danh có nháy và comment.
 import type { DbKind, DbResultSet } from "./ipc";
 
-export type Dialect = "mysql" | "postgres";
+export type Dialect = "mysql" | "postgres" | "clickhouse" | "redis";
 
 export function dialectOf(kind: DbKind): Dialect {
-  return kind === "postgres" ? "postgres" : "mysql";
+  if (kind === "postgres" || kind === "clickhouse" || kind === "redis") return kind;
+  return "mysql";
 }
 
 /** Bao một tên (bảng, cột, schema…) theo cú pháp của dialect. */
 export function quoteIdent(name: string, d: Dialect): string {
-  return d === "mysql" ? "`" + name.replace(/`/g, "``") + "`" : '"' + name.replace(/"/g, '""') + '"';
+  return d === "postgres" ? '"' + name.replace(/"/g, '""') + '"' : "`" + name.replace(/`/g, "``") + "`";
 }
 
 /** Tên bảng đầy đủ từ đường dẫn cây: MySQL [db, bảng] · PostgreSQL [db, schema, bảng]. */
@@ -33,6 +34,7 @@ export interface Statement {
  * ('…', "…", `…`), dollar-quote của PostgreSQL ($tag$…$tag$) và comment (-- , #, /* *\/).
  */
 export function splitStatements(sql: string, d: Dialect): Statement[] {
+  if (d === "redis") return splitLines(sql);
   const out: Statement[] = [];
   let start = 0;
   let i = 0;
@@ -70,6 +72,18 @@ export function splitStatements(sql: string, d: Dialect): Statement[] {
   return out;
 }
 
+/** Redis: mỗi dòng (không rỗng, không phải comment #, //) là một lệnh. */
+function splitLines(text: string): Statement[] {
+  const out: Statement[] = [];
+  let start = 0;
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (t && !t.startsWith("#") && !t.startsWith("//")) out.push({ text: t, start, end: start + line.length });
+    start += line.length + 1;
+  }
+  return out;
+}
+
 function lineEnd(s: string, i: number): number {
   const e = s.indexOf("\n", i);
   return e < 0 ? s.length : e + 1;
@@ -103,6 +117,15 @@ export function statementAt(sql: string, pos: number, d: Dialect): Statement | n
  */
 export function dangerousStatements(sql: string, d: Dialect): string[] {
   const out: string[] = [];
+  if (d === "redis") {
+    for (const st of splitLines(sql)) {
+      const cmd = st.text.split(/\s+/)[0].toUpperCase();
+      if (["FLUSHALL", "FLUSHDB", "SHUTDOWN", "SWAPDB", "DEBUG", "MIGRATE"].includes(cmd)) out.push(st.text);
+      else if (cmd === "KEYS") out.push(`${st.text} … (blocks the server on large databases — prefer SCAN)`);
+      else if (cmd === "CONFIG" && /^config\s+(set|resetstat|rewrite)/i.test(st.text)) out.push(st.text);
+    }
+    return out;
+  }
   for (const st of splitStatements(sql, d)) {
     const t = stripComments(st.text).replace(/'(?:[^']|'')*'/g, "''").trim();
     const head = t.slice(0, 80).replace(/\s+/g, " ");
@@ -134,5 +157,6 @@ export function toJson(rs: DbResultSet): string {
 
 /** Cột trông như số (căn phải trong lưới). */
 export function isNumericType(t: string | null): boolean {
-  return !!t && /^(tiny|short|long|int|longlong|int24|float|double|decimal|newdecimal|year)/.test(t);
+  // MySQL: "long", "newdecimal"… · ClickHouse: "UInt64", "Nullable(Float64)", "Decimal(10, 2)"…
+  return !!t && /^((nullable|lowcardinality)\()*(tiny|short|long|u?int|int24|float|double|decimal|newdecimal|year)/i.test(t);
 }

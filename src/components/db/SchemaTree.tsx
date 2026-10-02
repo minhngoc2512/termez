@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, Database, Layers, Table2, Eye, Columns3, Loader2, RefreshCw, KeyRound, Info } from "lucide-react";
 import * as dbPool from "../../lib/dbPool";
 import type { DbPane } from "../../lib/dbPool";
 import type { DbTreeNode } from "../../lib/ipc";
 import { cn } from "@/lib/utils";
 
-const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3 } as const;
+const ICONS = { database: Database, schema: Layers, table: Table2, view: Eye, column: Columns3, key: KeyRound, info: Info } as const;
 
 export interface TreeMenuAction {
   label: string;
@@ -15,13 +15,13 @@ export interface TreeMenuAction {
 interface Props {
   panelId: string;
   pane: DbPane;
-  /** Double-click bảng/view. */
-  onOpenTable: (path: string[]) => void;
+  /** Double-click bảng/view hoặc key Redis. */
+  onOpenNode: (node: DbTreeNode, path: string[]) => void;
   /** Menu chuột phải cho một node. */
   menuFor: (node: DbTreeNode, path: string[]) => TreeMenuAction[];
 }
 
-export function SchemaTree({ panelId, pane, onOpenTable, menuFor }: Props) {
+export function SchemaTree({ panelId, pane, onOpenNode, menuFor }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: TreeMenuAction[] } | null>(null);
 
   useEffect(() => {
@@ -57,13 +57,13 @@ export function SchemaTree({ panelId, pane, onOpenTable, menuFor }: Props) {
       const k = dbPool.pathKey(p);
       const open = !!pane.expanded[k];
       const Icon = ICONS[n.kind] ?? Table2;
-      const isTable = n.kind === "table" || n.kind === "view";
+      const openable = n.kind === "table" || n.kind === "view" || n.kind === "key";
       const current = n.kind === "database" && n.name === pane.database;
       return (
         <div key={k}>
           <div
             onClick={() => !n.leaf && dbPool.toggle(panelId, p)}
-            onDoubleClick={() => isTable && onOpenTable(p)}
+            onDoubleClick={() => openable && onOpenNode(n, p)}
             onContextMenu={(e) => {
               e.preventDefault();
               const items = menuFor(n, p);
@@ -76,8 +76,10 @@ export function SchemaTree({ panelId, pane, onOpenTable, menuFor }: Props) {
             <ChevronRight
               className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90", n.leaf && "invisible")}
             />
-            <Icon className={cn("size-3.5 shrink-0", n.kind === "column" ? "text-muted-foreground" : "text-primary")} />
-            <span className={cn("truncate", current && "font-semibold text-primary")}>{n.name}</span>
+            <Icon className={cn("size-3.5 shrink-0", n.kind === "column" || n.kind === "info" ? "text-muted-foreground" : "text-primary")} />
+            <span className={cn("truncate", current && "font-semibold text-primary", n.kind === "info" && "text-xs italic text-muted-foreground")}>
+              {n.name}
+            </span>
             {n.detail && <span className="ml-1 truncate text-[11px] text-muted-foreground">{n.detail}</span>}
           </div>
           {open && !n.leaf && renderLevel(p, depth + 1)}

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, placeholder } from "@codemirror/view";
-import { EditorState, Compartment, Prec } from "@codemirror/state";
+import { EditorState, Compartment, Prec, Extension } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { sql, MySQL, PostgreSQL } from "@codemirror/lang-sql";
 import { syntaxHighlighting, HighlightStyle, bracketMatching, indentOnInput } from "@codemirror/language";
@@ -37,6 +37,12 @@ const highlight = HighlightStyle.define([
   { tag: [t.typeName, t.standard(t.name)], color: "#8b5cf6" },
   { tag: [t.special(t.name), t.quote], color: "#db2777" },
 ]);
+
+/** Ngôn ngữ của editor: SQL theo dialect (ClickHouse dùng cú pháp gần MySQL); Redis = văn bản thường. */
+function language(d: Dialect, schema: Record<string, string[]>): Extension {
+  if (d === "redis") return [];
+  return sql({ dialect: d === "postgres" ? PostgreSQL : MySQL, schema, upperCaseKeywords: true });
+}
 
 export interface SqlEditorHandle {
   /** Văn bản để chạy: vùng chọn; không chọn → câu tại con trỏ (hoặc cả script nếu `all`). */
@@ -78,8 +84,12 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           bracketMatching(),
           closeBrackets(),
           autocompletion(),
-          placeholder("SELECT …   (Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all)"),
-          lang.current.of(sql({ dialect: dialect === "mysql" ? MySQL : PostgreSQL, upperCaseKeywords: true })),
+          placeholder(
+            dialect === "redis"
+              ? "GET key   (one command per line · Ctrl+Enter: run line · Ctrl+Shift+Enter: run all)"
+              : "SELECT …   (Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all)"
+          ),
+          lang.current.of(language(dialect, {})),
           syntaxHighlighting(highlight),
           theme,
           Prec.highest(
@@ -105,11 +115,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   }, []);
 
   useEffect(() => {
-    view.current?.dispatch({
-      effects: lang.current.reconfigure(
-        sql({ dialect: dialect === "mysql" ? MySQL : PostgreSQL, schema, upperCaseKeywords: true })
-      ),
-    });
+    view.current?.dispatch({ effects: lang.current.reconfigure(language(dialect, schema)) });
   }, [dialect, schema]);
 
   // Giá trị đổi từ ngoài (chọn lịch sử, double-click bảng…) → thay nội dung.

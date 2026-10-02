@@ -244,8 +244,14 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             ssl_mode    TEXT NOT NULL DEFAULT 'prefer',
             read_only   INTEGER NOT NULL DEFAULT 0,
             options     TEXT,
+            group_id    TEXT,
             created_at  INTEGER NOT NULL,
             updated_at  INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS db_groups (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
         );
         "#,
     )
@@ -277,6 +283,15 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
                 .execute(pool)
                 .await?;
         }
+    }
+
+    // db_connections đã có từ bản dev trước khi có nhóm.
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM pragma_table_info('db_connections') WHERE name = 'group_id'")
+            .fetch_optional(pool)
+            .await?;
+    if exists.is_none() {
+        sqlx::query("ALTER TABLE db_connections ADD COLUMN group_id TEXT").execute(pool).await?;
     }
 
     Ok(())
@@ -771,6 +786,8 @@ pub struct DbConnection {
     pub read_only: bool,
     /// JSON tuỳ chọn riêng từng loại DB (dành cho các loại sau).
     pub options: Option<String>,
+    /// Nhóm (bảng `db_groups`), None = chưa xếp nhóm.
+    pub group_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -790,6 +807,7 @@ pub struct DbConnectionInput {
     pub ssl_mode: String,
     pub read_only: bool,
     pub options: Option<String>,
+    pub group_id: Option<String>,
 }
 
 pub async fn list_db_connections(pool: &SqlitePool) -> anyhow::Result<Vec<DbConnection>> {
@@ -815,13 +833,14 @@ pub async fn upsert_db_connection(
     let t = now();
     sqlx::query(
         r#"INSERT INTO db_connections (id, name, kind, host, port, username, database,
-             ssh_host_id, ssl_mode, read_only, options, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ssh_host_id, ssl_mode, read_only, options, group_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind,
              host=excluded.host, port=excluded.port, username=excluded.username,
              database=excluded.database, ssh_host_id=excluded.ssh_host_id,
              ssl_mode=excluded.ssl_mode, read_only=excluded.read_only,
-             options=excluded.options, updated_at=excluded.updated_at"#,
+             options=excluded.options, group_id=excluded.group_id,
+             updated_at=excluded.updated_at"#,
     )
     .bind(id)
     .bind(&input.name)
@@ -834,11 +853,65 @@ pub async fn upsert_db_connection(
     .bind(&input.ssl_mode)
     .bind(input.read_only)
     .bind(&input.options)
+    .bind(&input.group_id)
     .bind(t)
     .bind(t)
     .execute(pool)
     .await?;
     get_db_connection(pool, id).await
+}
+
+/// Nhóm kết nối database (riêng với nhóm host).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct DbGroup {
+    pub id: String,
+    pub name: String,
+    pub created_at: i64,
+}
+
+pub async fn list_db_groups(pool: &SqlitePool) -> anyhow::Result<Vec<DbGroup>> {
+    Ok(sqlx::query_as::<_, DbGroup>("SELECT * FROM db_groups ORDER BY name COLLATE NOCASE")
+        .fetch_all(pool)
+        .await?)
+}
+
+/// Tạo (id = None) hoặc đổi tên nhóm.
+pub async fn upsert_db_group(pool: &SqlitePool, id: Option<&str>, name: &str) -> anyhow::Result<DbGroup> {
+    let id = id.map(str::to_string).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    sqlx::query(
+        "INSERT INTO db_groups (id, name, created_at) VALUES (?, ?, ?) \
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+    )
+    .bind(&id)
+    .bind(name)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(sqlx::query_as::<_, DbGroup>("SELECT * FROM db_groups WHERE id = ?")
+        .bind(&id)
+        .fetch_one(pool)
+        .await?)
+}
+
+/// Xoá nhóm; các kết nối trong nhóm thành "chưa xếp nhóm" (không bị xoá).
+pub async fn delete_db_group(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE db_connections SET group_id = NULL WHERE group_id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM db_groups WHERE id = ?").bind(id).execute(pool).await?;
+    Ok(())
+}
+
+/// Chuyển một kết nối sang nhóm khác (kéo-thả trên trang Databases).
+pub async fn set_db_connection_group(pool: &SqlitePool, id: &str, group_id: Option<&str>) -> anyhow::Result<()> {
+    sqlx::query("UPDATE db_connections SET group_id = ?, updated_at = ? WHERE id = ?")
+        .bind(group_id)
+        .bind(now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn delete_db_connection(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
@@ -1066,6 +1139,43 @@ pub async fn import_all(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// db_connections tạo từ bản chưa có nhóm → mở lại phải thêm cột group_id, giữ dữ liệu.
+    #[tokio::test]
+    async fn db_connections_gain_group_id() {
+        let dir = std::env::temp_dir().join(format!("terminus-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        {
+            let opts = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                .unwrap()
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+            sqlx::query(
+                "CREATE TABLE db_connections (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, \
+                 host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT NOT NULL, database TEXT, \
+                 ssh_host_id TEXT, ssl_mode TEXT NOT NULL DEFAULT 'prefer', read_only INTEGER NOT NULL DEFAULT 0, \
+                 options TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); \
+                 INSERT INTO db_connections VALUES ('c1','old','mysql','h',3306,'u',NULL,NULL,'prefer',0,NULL,1,1);",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            pool.close().await;
+        }
+        let pool = init_pool(&path).await.expect("migrate");
+        let list = list_db_connections(&pool).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "old");
+        assert_eq!(list[0].group_id, None);
+
+        let g = upsert_db_group(&pool, None, "Prod").await.unwrap();
+        set_db_connection_group(&pool, "c1", Some(&g.id)).await.unwrap();
+        assert_eq!(get_db_connection(&pool, "c1").await.unwrap().group_id.as_deref(), Some(g.id.as_str()));
+        delete_db_group(&pool, &g.id).await.unwrap();
+        assert_eq!(get_db_connection(&pool, "c1").await.unwrap().group_id, None, "xoá nhóm không xoá kết nối");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn upsert_and_list_roundtrip() {

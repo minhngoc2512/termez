@@ -4,8 +4,10 @@
 //! đóng. Nếu kết nối đi qua SSH, phiên giữ luôn tunnel (cổng local ngẫu nhiên) và
 //! driver kết nối vào 127.0.0.1:<cổng đó>; TLS vẫn kiểm tra theo tên host thật.
 
+mod clickhouse;
 mod mysql;
 mod postgres;
+mod redis;
 mod tls;
 
 use serde::Serialize;
@@ -21,7 +23,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Thông số kết nối đã resolve (mật khẩu lấy từ keychain, tunnel đã mở nếu có).
 #[derive(Clone)]
 pub struct ConnectSpec {
-    /// "mysql" | "mariadb" | "postgres"
+    /// "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis"
     pub kind: String,
     /// Địa chỉ driver kết nối thật (127.0.0.1 khi đi qua tunnel).
     pub host: String,
@@ -65,7 +67,7 @@ pub struct QueryOutput {
 #[derive(Serialize)]
 pub struct TreeNode {
     pub name: String,
-    /// "database" | "schema" | "table" | "view" | "column"
+    /// "database" | "schema" | "table" | "view" | "column" | "key" | "info"
     pub kind: String,
     /// Thông tin phụ (kiểu cột, khoá chính…).
     pub detail: Option<String>,
@@ -78,16 +80,20 @@ pub struct SessionInfo {
     pub kind: String,
     pub database: Option<String>,
     pub server_version: String,
+    pub read_only: bool,
 }
 
 enum Backend {
     Mysql(mysql::MySession),
     Postgres(postgres::PgSession),
+    ClickHouse(clickhouse::ChSession),
+    Redis(redis::RedisSession),
 }
 
 struct Session {
     backend: Backend,
     tunnel: Option<AbortHandle>,
+    read_only: bool,
 }
 
 impl Drop for Session {
@@ -109,12 +115,40 @@ async fn connect(spec: &ConnectSpec) -> anyhow::Result<(Backend, String)> {
                 let (s, v) = postgres::PgSession::connect(spec).await?;
                 Ok((Backend::Postgres(s), v))
             }
+            "clickhouse" => {
+                let (s, v) = clickhouse::ChSession::connect(spec).await?;
+                Ok((Backend::ClickHouse(s), v))
+            }
+            "redis" => {
+                let (s, v) = redis::RedisSession::connect(spec).await?;
+                Ok((Backend::Redis(s), v))
+            }
             other => anyhow::bail!("Loại database chưa hỗ trợ: {other}"),
         }
     };
     tokio::time::timeout(CONNECT_TIMEOUT, fut)
         .await
         .map_err(|_| anyhow::anyhow!("Hết thời gian chờ kết nối ({}s)", CONNECT_TIMEOUT.as_secs()))?
+}
+
+/// Kết nối tạm để lấy danh sách database (cho ô chọn database trong form).
+pub async fn list_databases(spec: &ConnectSpec) -> anyhow::Result<Vec<String>> {
+    let (backend, _) = connect(spec).await?;
+    let nodes = match &backend {
+        Backend::Mysql(s) => s.tree(&[]).await?,
+        Backend::Postgres(s) => s.tree(&[]).await?,
+        Backend::ClickHouse(s) => s.tree(&[]).await?,
+        Backend::Redis(s) => s.tree(&[]).await?,
+    };
+    Ok(nodes
+        .into_iter()
+        .filter(|n| n.kind == "database")
+        .map(|n| match &backend {
+            // Redis: "db3" → "3" (ô database nhận số index).
+            Backend::Redis(_) => n.name.trim_start_matches("db").to_string(),
+            _ => n.name,
+        })
+        .collect())
 }
 
 /// Thử kết nối rồi đóng ngay (drop = ngắt kết nối) — trả về phiên bản server.
@@ -149,12 +183,14 @@ impl DbManager {
         let database = match &backend {
             Backend::Mysql(s) => s.current_database().await,
             Backend::Postgres(s) => Some(s.default_database().to_string()),
+            Backend::ClickHouse(s) => s.default_database(),
+            Backend::Redis(s) => Some(s.default_database()),
         };
         self.sessions
             .lock()
             .await
-            .insert(id.clone(), Arc::new(Session { backend, tunnel }));
-        Ok(SessionInfo { session_id: id, kind: spec.kind, database, server_version })
+            .insert(id.clone(), Arc::new(Session { backend, tunnel, read_only: spec.read_only }));
+        Ok(SessionInfo { session_id: id, kind: spec.kind, database, server_version, read_only: spec.read_only })
     }
 
     async fn get(&self, id: &str) -> anyhow::Result<Arc<Session>> {
@@ -176,6 +212,8 @@ impl DbManager {
         match &self.get(id).await?.backend {
             Backend::Mysql(s) => s.tree(path).await,
             Backend::Postgres(s) => s.tree(path).await,
+            Backend::ClickHouse(s) => s.tree(path).await,
+            Backend::Redis(s) => s.tree(path).await,
         }
     }
 
@@ -187,11 +225,17 @@ impl DbManager {
         limit: usize,
     ) -> anyhow::Result<QueryOutput> {
         let session = self.get(id).await?;
+        // Redis tự chặn theo cờ `write` của từng lệnh (xem redis.rs).
+        if session.read_only && !matches!(session.backend, Backend::Redis(_)) {
+            ensure_read_only(sql)?;
+        }
         let started = Instant::now();
         let database = database.filter(|d| !d.trim().is_empty());
         let (results, database) = match &session.backend {
             Backend::Mysql(s) => s.query(database, sql, limit).await?,
             Backend::Postgres(s) => s.query(database, sql, limit).await?,
+            Backend::ClickHouse(s) => s.query(database, sql, limit).await?,
+            Backend::Redis(s) => s.query(database, sql, limit).await?,
         };
         Ok(QueryOutput { results, elapsed_ms: started.elapsed().as_millis() as u64, database })
     }
@@ -201,6 +245,8 @@ impl DbManager {
         match &self.get(id).await?.backend {
             Backend::Mysql(s) => s.cancel().await,
             Backend::Postgres(s) => s.cancel().await,
+            Backend::ClickHouse(s) => s.cancel().await,
+            Backend::Redis(s) => s.cancel().await,
         }
     }
 }
@@ -208,6 +254,162 @@ impl DbManager {
 /// Bao tên (database/bảng) bằng dấu nháy định danh của MySQL.
 fn quote_mysql(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
+}
+
+/// Tách script thành từng câu lệnh theo `;` ở cấp ngoài cùng (bỏ qua `;` trong
+/// chuỗi '…' "…" `…` và comment -- / /* */). Dùng cho DB không nhận nhiều câu
+/// trong một lần gửi (ClickHouse HTTP).
+fn split_statements(sql: &str) -> Vec<String> {
+    let b = sql.as_bytes();
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    let push = |from: usize, to: usize, out: &mut Vec<String>| {
+        let t = sql[from..to].trim();
+        if !strip_comments(t).trim().is_empty() {
+            out.push(t.to_string());
+        }
+    };
+    while i < b.len() {
+        match b[i] {
+            b'-' if b.get(i + 1) == Some(&b'-') => {
+                i = sql[i..].find('\n').map_or(b.len(), |e| i + e + 1);
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i = sql[i + 2..].find("*/").map_or(b.len(), |e| i + 2 + e + 2);
+            }
+            q @ (b'\'' | b'"' | b'`') => {
+                i += 1;
+                while i < b.len() {
+                    if b[i] == b'\\' && q != b'`' {
+                        i += 2;
+                    } else if b[i] == q {
+                        if b.get(i + 1) == Some(&q) {
+                            i += 2;
+                        } else {
+                            i += 1;
+                            break;
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            b';' => {
+                push(start, i, &mut out);
+                i += 1;
+                start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    push(start, b.len().max(start), &mut out);
+    out
+}
+
+/// Lớp bảo vệ read-only phía Termez (lớp thứ hai là chế độ read-only của phiên
+/// trên server): mỗi câu lệnh phải là câu ĐỌC — SELECT / SHOW / DESCRIBE /
+/// EXPLAIN / WITH … SELECT / VALUES / TABLE / USE. Chặn cả `SELECT … INTO`
+/// (tạo bảng / ghi file), CTE có INSERT/UPDATE/DELETE, `EXPLAIN ANALYZE` của
+/// câu ghi (vì nó thực thi thật) và `SET` (có thể tắt read-only của phiên).
+pub fn ensure_read_only(sql: &str) -> anyhow::Result<()> {
+    const WRITES: [&str; 5] = ["INSERT", "UPDATE", "DELETE", "MERGE", "UPSERT"];
+    for stmt in split_statements(sql) {
+        let words = sql_words(&stmt);
+        let has = |w: &str| words.iter().any(|x| x == w);
+        let writes = || WRITES.iter().any(|w| has(w));
+        let first = words.first().map(String::as_str).unwrap_or("");
+        let ok = match first {
+            "SELECT" | "VALUES" | "TABLE" => !has("INTO"),
+            "WITH" => !has("INTO") && !writes(),
+            "SHOW" | "DESCRIBE" | "DESC" | "USE" | "EXISTS" | "HELP" => true,
+            "EXPLAIN" => !(has("ANALYZE") || has("ANALYSE")) || !(writes() || has("INTO")),
+            _ => false,
+        };
+        if !ok {
+            let head: String = stmt.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
+            anyhow::bail!(
+                "Read-only connection — blocked: `{head}…`\nOnly SELECT / SHOW / DESCRIBE / EXPLAIN statements can run. \
+                 Edit the connection and untick Read-only to make changes."
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Các từ khoá/định danh (chữ hoa) nằm NGOÀI chuỗi, định danh có nháy và comment.
+fn sql_words(stmt: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut it = stmt.char_indices().peekable();
+    let flush = |cur: &mut String, words: &mut Vec<String>| {
+        if !cur.is_empty() {
+            words.push(std::mem::take(cur).to_ascii_uppercase());
+        }
+    };
+    while let Some((i, c)) = it.next() {
+        match c {
+            '\'' | '"' | '`' => {
+                flush(&mut cur, &mut words);
+                let mut prev_bs = false;
+                while let Some((_, d)) = it.next() {
+                    if d == c && !prev_bs {
+                        if it.peek().map(|&(_, n)| n) == Some(c) {
+                            it.next(); // nháy kép thoát ('')
+                            continue;
+                        }
+                        break;
+                    }
+                    prev_bs = d == '\\' && !prev_bs && c != '`';
+                }
+            }
+            '-' if stmt[i + 1..].starts_with('-') => {
+                flush(&mut cur, &mut words);
+                while let Some((_, d)) = it.next() {
+                    if d == '\n' {
+                        break;
+                    }
+                }
+            }
+            '/' if stmt[i + 1..].starts_with('*') => {
+                flush(&mut cur, &mut words);
+                let end = stmt[i + 2..].find("*/").map_or(stmt.len(), |e| i + 2 + e + 2);
+                while it.peek().is_some_and(|&(j, _)| j < end) {
+                    it.next();
+                }
+            }
+            '$' => {
+                // PostgreSQL dollar-quote: $tag$ … $tag$
+                flush(&mut cur, &mut words);
+                let rest = &stmt[i + 1..];
+                if let Some(close) = rest.find('$') {
+                    let tag = &rest[..close];
+                    if tag.chars().all(|ch| ch.is_alphanumeric() || ch == '_') {
+                        let delim = format!("${tag}$");
+                        let body_start = i + 1 + close + 1;
+                        let end = stmt[body_start..].find(&delim).map_or(stmt.len(), |e| body_start + e + delim.len());
+                        while it.peek().is_some_and(|&(j, _)| j < end) {
+                            it.next();
+                        }
+                    }
+                }
+            }
+            c if c.is_alphanumeric() || c == '_' => cur.push(c),
+            _ => flush(&mut cur, &mut words),
+        }
+    }
+    flush(&mut cur, &mut words);
+    words
+}
+
+fn strip_comments(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(p) = rest.find("/*") {
+        out.push_str(&rest[..p]);
+        rest = rest[p + 2..].find("*/").map_or("", |e| &rest[p + 2 + e + 2..]);
+    }
+    out.push_str(rest);
+    out.lines().map(|l| l.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n")
 }
 
 /// Kiểm tra với server thật (bỏ qua mặc định). Ví dụ:
@@ -233,10 +435,19 @@ mod tests {
         })
     }
 
-    async fn roundtrip(spec: ConnectSpec, setup: &str, big: &str, sleep: &'static str, path: Vec<String>) {
+    async fn roundtrip(
+        spec: ConnectSpec,
+        setup: &str,
+        big: &str,
+        sleep: &'static str,
+        path: Vec<String>,
+        ro_write: &str,
+    ) {
         let m = DbManager::new();
         let info = m.open(spec.clone(), None).await.expect("open");
         assert!(!info.server_version.is_empty());
+        let dbs = list_databases(&spec).await.expect("list databases");
+        assert!(dbs.contains(&path[0]), "thiếu {} trong {dbs:?}", path[0]);
         let id = info.session_id;
 
         // Nhiều câu lệnh một lần: tạo bảng, chèn, đọc.
@@ -276,7 +487,7 @@ mod tests {
         // Read-only: ghi phải bị từ chối.
         let ro = DbManager::new();
         let rid = ro.open(ConnectSpec { read_only: true, ..spec }, None).await.unwrap().session_id;
-        assert!(ro.query(&rid, None, "INSERT INTO t (id, name) VALUES (9, 'x')", 10).await.is_err());
+        assert!(ro.query(&rid, None, ro_write, 10).await.is_err(), "read-only cho phép ghi");
         m.close(&id).await;
     }
 
@@ -296,6 +507,7 @@ mod tests {
             "SELECT a.COLUMN_NAME FROM information_schema.COLUMNS a CROSS JOIN information_schema.COLUMNS b LIMIT 5000",
             "SELECT SLEEP(10)",
             vec!["shop".into(), "t".into()],
+            "INSERT INTO t (id, name) VALUES (9, 'x')",
         )
         .await;
     }
@@ -311,7 +523,111 @@ mod tests {
             "SELECT g FROM generate_series(1, 5000000) g",
             "SELECT pg_sleep(10)",
             vec!["shop".into(), "public".into(), "t".into()],
+            "INSERT INTO t (id, name) VALUES (9, 'x')",
         )
         .await;
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn clickhouse_roundtrip() {
+        let Some(s) = spec("TERMEZ_TEST_CH", "clickhouse", "default", false) else { return };
+        roundtrip(
+            s,
+            "CREATE DATABASE IF NOT EXISTS shop; DROP TABLE IF EXISTS shop.t; \
+             CREATE TABLE shop.t (id Int32, name String, note Nullable(String)) ENGINE = MergeTree ORDER BY id; \
+             INSERT INTO shop.t (id, name) VALUES (1, 'ann'), (2, 'bob'); SELECT * FROM shop.t ORDER BY id",
+            "SELECT number FROM numbers(5000000)",
+            "SELECT sleepEachRow(0.5) FROM numbers(60) SETTINGS max_block_size = 1",
+            vec!["shop".into(), "t".into()],
+            "INSERT INTO shop.t (id, name) VALUES (9, 'x')",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn redis_roundtrip() {
+        let Some(s) = spec("TERMEZ_TEST_REDIS", "redis", "0", false) else { return };
+        let m = DbManager::new();
+        let info = m.open(s.clone(), None).await.expect("open");
+        assert!(info.server_version.starts_with('7'), "version {}", info.server_version);
+        assert!(list_databases(&s).await.unwrap().contains(&"0".to_string()));
+        let id = info.session_id;
+        let out = m
+            .query(&id, None, "FLUSHDB\nSET greeting \"hello world\"\nGET greeting\nHSET user:1 name ann age 30\nHGETALL user:1\nGET missing", 100)
+            .await
+            .expect("cmds");
+        assert_eq!(out.results[2].rows, vec![vec![Some("hello world".to_string())]]);
+        assert_eq!(out.results[4].columns[0].name, "field");
+        assert_eq!(out.results[4].rows.len(), 2);
+        assert_eq!(out.results[5].rows, vec![vec![None]]);
+
+        let dbs = m.tree(&id, &[]).await.expect("dbs");
+        assert!(dbs.iter().any(|n| n.name == "db0" && n.detail.as_deref() == Some("2 keys")));
+        let keys = m.tree(&id, &["db0".to_string()]).await.expect("keys");
+        assert_eq!(
+            keys.iter().map(|k| (k.name.as_str(), k.detail.as_deref().unwrap())).collect::<Vec<_>>(),
+            [("greeting", "string"), ("user:1", "hash")]
+        );
+
+        // Lệnh chặn huỷ được.
+        let m = std::sync::Arc::new(m);
+        let (m2, id2) = (m.clone(), id.clone());
+        let t = tokio::spawn(async move { m2.query(&id2, None, "BLPOP nothing 30", 10).await });
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        m.cancel(&id).await.unwrap();
+        assert!(tokio::time::timeout(Duration::from_secs(3), t).await.is_ok(), "BLPOP không huỷ được");
+        // Kết nối dùng lại được sau khi huỷ.
+        assert!(m.query(&id, None, "PING", 10).await.is_ok());
+
+        let ro = DbManager::new();
+        let rid = ro.open(ConnectSpec { read_only: true, ..s }, None).await.unwrap().session_id;
+        assert!(ro.query(&rid, None, "GET greeting", 10).await.is_ok());
+        assert!(ro.query(&rid, None, "SET greeting x", 10).await.is_err(), "read-only cho phép SET");
+    }
+
+    #[test]
+    fn split_statements_respects_quotes_and_comments() {
+        let v = split_statements("SELECT ';' AS a; -- x;\nSELECT 2 /* ; */;\n/* only comment */ ; SELECT `a;b`");
+        assert_eq!(v, ["SELECT ';' AS a", "-- x;\nSELECT 2 /* ; */", "SELECT `a;b`"]);
+    }
+
+
+    #[test]
+    fn read_only_guard() {
+        for ok in [
+            "SELECT * FROM t WHERE note = 'DELETE me; INSERT'",
+            "select 1; show tables; describe t; explain select * from t",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "SELECT * FROM t FOR UPDATE",
+            "EXPLAIN ANALYZE SELECT * FROM t",
+            "USE shop",
+            "SELECT $$ drop table x $$",
+            "/* UPDATE */ SELECT `update` FROM t -- DELETE",
+        ] {
+            assert!(ensure_read_only(ok).is_ok(), "nên cho phép: {ok}");
+        }
+        for bad in [
+            "UPDATE t SET a = 1",
+            "insert into t values (1)",
+            "SELECT 1; DELETE FROM t",
+            "DROP TABLE t",
+            "TRUNCATE t",
+            "CREATE TABLE x (a int)",
+            "ALTER TABLE t ADD COLUMN b int",
+            "SELECT * INTO backup FROM t",
+            "SELECT * FROM t INTO OUTFILE '/tmp/x'",
+            "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d",
+            "EXPLAIN ANALYZE UPDATE t SET a = 1",
+            "SET SESSION TRANSACTION READ WRITE",
+            "SET default_transaction_read_only = off",
+            "GRANT ALL ON t TO u",
+            "CALL p()",
+            "  -- c\n  REPLACE INTO t VALUES (1)",
+        ] {
+            assert!(ensure_read_only(bad).is_err(), "phải chặn: {bad}");
+        }
+    }
+
 }

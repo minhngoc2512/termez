@@ -2369,6 +2369,30 @@ pub async fn upsert_db_connection(
 }
 
 #[tauri::command]
+pub async fn get_db_groups(state: State<'_, AppState>) -> R<Vec<db::DbGroup>> {
+    db::list_db_groups(&state.db).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn upsert_db_group(state: State<'_, AppState>, id: Option<String>, name: String) -> R<db::DbGroup> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Group name is required".into());
+    }
+    db::upsert_db_group(&state.db, id.as_deref(), name).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn delete_db_group(state: State<'_, AppState>, id: String) -> R<()> {
+    db::delete_db_group(&state.db, &id).await.map_err(e)
+}
+
+#[tauri::command]
+pub async fn set_db_connection_group(state: State<'_, AppState>, id: String, group_id: Option<String>) -> R<()> {
+    db::set_db_connection_group(&state.db, &id, group_id.as_deref()).await.map_err(e)
+}
+
+#[tauri::command]
 pub async fn delete_db_connection(state: State<'_, AppState>, id: String) -> R<()> {
     db::delete_db_connection(&state.db, &id).await.map_err(e)?;
     keychain::delete_secret(&keychain::db_password(&id)).ok();
@@ -2407,10 +2431,9 @@ async fn db_connect_spec(
     Ok((spec, tunnel))
 }
 
-/// Thử kết nối với thông số đang nhập trong form (chưa lưu). Mật khẩu để trống khi
-/// sửa → dùng mật khẩu đã lưu. Trả về phiên bản server.
-#[tauri::command]
-pub async fn db_test(state: State<'_, AppState>, input: db::DbConnectionInput) -> R<String> {
+/// Thông số từ form (chưa lưu) → kết nối + mật khẩu. Mật khẩu để trống khi sửa →
+/// dùng mật khẩu đã lưu trong keychain.
+fn db_input_conn(input: &db::DbConnectionInput) -> R<(db::DbConnection, String)> {
     let password = match input.password.clone().filter(|p| !p.is_empty()) {
         Some(p) => p,
         None => match &input.id {
@@ -2430,11 +2453,46 @@ pub async fn db_test(state: State<'_, AppState>, input: db::DbConnectionInput) -
         ssl_mode: input.ssl_mode.clone(),
         read_only: input.read_only,
         options: input.options.clone(),
+        group_id: input.group_id.clone(),
         created_at: 0,
         updated_at: 0,
     };
+    Ok((c, password))
+}
+
+/// Thử kết nối với thông số đang nhập trong form. Trả về phiên bản server.
+#[tauri::command]
+pub async fn db_test(state: State<'_, AppState>, input: db::DbConnectionInput) -> R<String> {
+    let (c, password) = db_input_conn(&input)?;
     let (spec, tunnel) = db_connect_spec(&state.db, &c, password).await?;
     let res = crate::dbclient::test(&spec).await;
+    if let Some(t) = tunnel {
+        t.abort();
+    }
+    res.map_err(e)
+}
+
+/// Danh sách database trên server (cho ô chọn database trong form).
+#[tauri::command]
+pub async fn db_list_databases(state: State<'_, AppState>, input: db::DbConnectionInput) -> R<Vec<String>> {
+    let (mut c, password) = db_input_conn(&input)?;
+    // Database đang gõ có thể chưa tồn tại / gõ dở → liệt kê từ database mặc định.
+    // (PostgreSQL bắt buộc vào một database: thử cái đang gõ trước, lỗi thì "postgres".)
+    let typed = c.database.take().filter(|d| !d.is_empty());
+    if c.kind == "postgres" && typed.is_some() {
+        c.database = typed;
+        let (spec, tunnel) = db_connect_spec(&state.db, &c, password.clone()).await?;
+        let res = crate::dbclient::list_databases(&spec).await;
+        if let Some(t) = tunnel {
+            t.abort();
+        }
+        if let Ok(list) = res {
+            return Ok(list);
+        }
+        c.database = None;
+    }
+    let (spec, tunnel) = db_connect_spec(&state.db, &c, password).await?;
+    let res = crate::dbclient::list_databases(&spec).await;
     if let Some(t) = tunnel {
         t.abort();
     }

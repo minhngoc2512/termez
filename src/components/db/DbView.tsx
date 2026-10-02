@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, ListChecks, Square, History, Download, Loader2, AlertTriangle, RotateCw, Database } from "lucide-react";
+import { Play, ListChecks, Square, History, Download, Loader2, AlertTriangle, RotateCw, Database, Lock } from "lucide-react";
 import * as dbPool from "../../lib/dbPool";
 import type { DbKind, DbTreeNode } from "../../lib/ipc";
 import { dialectOf, qualifiedTable, quoteIdent, dangerousStatements, toCsv, toJson } from "../../lib/sql";
@@ -21,6 +21,33 @@ import {
 import { cn } from "@/lib/utils";
 
 const NO_DB = "__default__";
+
+const KIND_LABEL: Record<DbKind, string> = {
+  mysql: "MySQL",
+  mariadb: "MariaDB",
+  postgres: "PostgreSQL",
+  clickhouse: "ClickHouse",
+  redis: "Redis",
+};
+
+/** Bao key Redis cho console khi có khoảng trắng / nháy. */
+function redisArg(k: string): string {
+  return /^[^\s"']+$/.test(k) ? k : '"' + k.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+/** Lệnh xem giá trị theo kiểu key. */
+function redisViewCmd(key: string, type: string | null): string {
+  const k = redisArg(key);
+  switch (type) {
+    case "hash": return `HGETALL ${k}`;
+    case "list": return `LRANGE ${k} 0 199`;
+    case "set": return `SMEMBERS ${k}`;
+    case "zset": return `ZRANGE ${k} 0 199 WITHSCORES`;
+    case "stream": return `XRANGE ${k} - + COUNT 200`;
+    case "ReJSON-RL": return `JSON.GET ${k}`;
+    default: return `GET ${k}`;
+  }
+}
 const LIMITS = [100, 500, 1000, 5000, 10000, 50000];
 
 /** Pane Database: cây schema | editor SQL + lưới kết quả. */
@@ -37,8 +64,8 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   // Gợi ý tự động: bảng (và cột đã mở) của database đang chọn.
   const schema = useMemo(() => {
     const out: Record<string, string[]> = {};
-    if (!pane?.database) return out;
-    const base = d === "mysql" ? [pane.database] : [pane.database, "public"];
+    if (!pane?.database || d === "redis") return out;
+    const base = d === "postgres" ? [pane.database, "public"] : [pane.database];
     for (const t of pane.children[dbPool.pathKey(base)] ?? []) {
       out[t.name] = (pane.children[dbPool.pathKey([...base, t.name])] ?? []).map((c) => c.name);
     }
@@ -47,8 +74,8 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
 
   // Nạp danh sách bảng của database đang chọn để có gợi ý.
   useEffect(() => {
-    if (!pane?.session || !pane.database) return;
-    const base = d === "mysql" ? [pane.database] : [pane.database, "public"];
+    if (!pane?.session || !pane.database || d === "redis") return;
+    const base = d === "postgres" ? [pane.database, "public"] : [pane.database];
     if (!pane.children[dbPool.pathKey(base)]) void dbPool.loadChildren(panelId, base);
   }, [pane?.session, pane?.database, pane?.children, d, panelId]);
 
@@ -79,8 +106,37 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
     void run(false, sql, path[0]);
   }
 
+  function openNode(n: DbTreeNode, path: string[]) {
+    if (n.kind !== "key") return openTable(path);
+    const sql = redisViewCmd(n.name, n.detail);
+    dbPool.update(panelId, { sql });
+    void run(false, sql, path[0]);
+  }
+
   function menuFor(n: DbTreeNode, path: string[]): TreeMenuAction[] {
     const items: TreeMenuAction[] = [];
+    if (n.kind === "key") {
+      const k = redisArg(n.name);
+      const exec = (sql: string) => {
+        dbPool.update(panelId, { sql });
+        void run(false, sql, path[0]);
+      };
+      return [
+        { label: "Show value", run: () => openNode(n, path) },
+        { label: "TTL / type", run: () => exec(`TYPE ${k}\nTTL ${k}\nMEMORY USAGE ${k}`) },
+        { label: "Copy key", run: () => copyText(n.name).catch(() => {}) },
+        {
+          label: "Delete key…",
+          run: async () => {
+            if (await confirmDialog({ title: "Delete key", message: `DEL ${n.name}`, confirmText: "Delete", danger: true })) {
+              await dbPool.run(panelId, `DEL ${k}`, path[0]);
+              void dbPool.loadChildren(panelId, path.slice(0, -1));
+            }
+          },
+        },
+      ];
+    }
+    if (n.kind === "info") return [];
     if (n.kind === "table" || n.kind === "view") {
       const q = qualifiedTable(path, d);
       items.push({ label: "Select first 100 rows", run: () => openTable(path) });
@@ -162,7 +218,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
   return (
     <div className="flex h-full bg-background text-foreground">
       <div className="shrink-0 border-r border-border bg-sidebar" style={{ width: treeW }}>
-        <SchemaTree panelId={panelId} pane={pane} onOpenTable={openTable} menuFor={menuFor} />
+        <SchemaTree panelId={panelId} pane={pane} onOpenNode={openNode} menuFor={menuFor} />
       </div>
       <div className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40" onMouseDown={dragTree} />
 
@@ -237,8 +293,19 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <span className="ml-auto truncate text-xs text-muted-foreground" title={pane.session?.server_version}>
-            {kind === "postgres" ? "PostgreSQL" : kind === "mariadb" ? "MariaDB" : "MySQL"} {pane.session?.server_version}
+          {pane.session?.read_only && (
+            <span
+              className="ml-auto flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1 text-xs font-medium text-amber-500"
+              title="Only SELECT / SHOW / DESCRIBE / EXPLAIN can run on this connection"
+            >
+              <Lock className="size-3.5" /> Read-only
+            </span>
+          )}
+          <span
+            className={cn("truncate text-xs text-muted-foreground", !pane.session?.read_only && "ml-auto")}
+            title={pane.session?.server_version}
+          >
+            {KIND_LABEL[kind]} {pane.session?.server_version}
           </span>
         </div>
 
