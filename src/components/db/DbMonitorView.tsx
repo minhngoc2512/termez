@@ -7,6 +7,7 @@ import { Card, fmtBytes, fmtUptime } from "../MonitorView";
 import { DbIcon } from "./DbIcon";
 import { SPECS, Vals, fmtNum } from "./monitorSpecs";
 import { CopyableError } from "./CopyableError";
+import { TableSizesDialog } from "./TableSizesDialog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,8 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
   const [interval, setIntervalSec] = useState(2);
   const [breakdown, setBreakdown] = useState<[string, number][] | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Popup kích thước từng bảng khi bấm vào một database ở Disk usage (không áp dụng cho Redis).
+  const [sizesDb, setSizesDb] = useState<string | null>(null);
   const history = useRef<Record<string, number[]>>({});
   const prev = useRef<{ vals: Vals; at: number } | null>(null);
   const lastBreakdown = useRef(0);
@@ -214,7 +217,12 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
             </div>
             <div className="space-y-1.5 px-4 py-3">
               {breakdown.map(([label, v]) => (
-                <div key={label} className="flex items-center gap-3 text-sm">
+                <div
+                  key={label}
+                  onClick={() => kind !== "redis" && setSizesDb(label)}
+                  title={kind !== "redis" ? "Show table sizes and row counts" : undefined}
+                  className={cn("flex items-center gap-3 rounded text-sm", kind !== "redis" && "-mx-2 cursor-pointer px-2 py-0.5 hover:bg-accent/50")}
+                >
                   <span className="w-48 shrink-0 truncate font-mono text-xs" title={label}>
                     {label}
                   </span>
@@ -300,6 +308,7 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
           )}
         </div>
       </div>
+      <TableSizesDialog sessionId={session.session_id} database={sizesDb} onClose={() => setSizesDb(null)} />
     </div>
   );
 }

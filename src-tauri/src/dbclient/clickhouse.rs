@@ -8,7 +8,7 @@
 //! - Câu lệnh của editor chạy trong một HTTP session (giữ SET / bảng tạm); cây
 //!   schema và lệnh huỷ dùng request riêng (session bị khoá khi đang chạy).
 
-use super::{num, split_statements, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
+use super::{num, split_statements, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TableSizes, TableStat, TreeNode};
 use futures_util::StreamExt;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -260,6 +260,37 @@ impl ChSession {
             );
         }
         Ok(snap)
+    }
+
+    /// Bảng của một database theo system.parts (part còn hiệu lực): số dòng chính xác,
+    /// dung lượng nén trên đĩa và chưa nén, engine.
+    pub async fn table_sizes(&self, database: &str) -> anyhow::Result<TableSizes> {
+        let rows = self
+            .rows(
+                "SELECT p.table, any(t.engine), toFloat64(sum(p.rows)), toFloat64(sum(p.bytes_on_disk)), \
+                   toFloat64(sum(p.data_uncompressed_bytes)) \
+                 FROM system.parts AS p LEFT JOIN system.tables AS t ON t.database = p.database AND t.name = p.table \
+                 WHERE p.active AND p.database = {db:String} \
+                 GROUP BY p.table ORDER BY sum(p.bytes_on_disk) DESC",
+                &[("param_db", database.to_string())],
+            )
+            .await?;
+        let n = |r: &Vec<Option<String>>, i: usize| r.get(i).cloned().flatten().as_deref().and_then(num);
+        Ok(TableSizes {
+            tables: rows
+                .iter()
+                .map(|r| TableStat {
+                    name: r.first().cloned().flatten().unwrap_or_default(),
+                    engine: r.get(1).cloned().flatten(),
+                    rows: n(r, 2),
+                    total_bytes: n(r, 3).unwrap_or(0.0),
+                    data_bytes: None,
+                    index_bytes: None,
+                    uncompressed_bytes: n(r, 4),
+                })
+                .collect(),
+            rows_exact: true,
+        })
     }
 
     /// KILL QUERY theo query_id (truyền dạng tham số, không ghép chuỗi).

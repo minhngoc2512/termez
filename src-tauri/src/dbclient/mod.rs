@@ -111,6 +111,27 @@ pub struct MonitorRow {
     pub cells: Vec<Option<String>>,
 }
 
+/// Kích thước / số dòng của một bảng (popup "Disk usage" của Monitor).
+#[derive(Serialize)]
+pub struct TableStat {
+    pub name: String,
+    pub engine: Option<String>,
+    pub rows: Option<f64>,
+    /// Dung lượng trên đĩa (data + index; ClickHouse: phần đã nén).
+    pub total_bytes: f64,
+    pub data_bytes: Option<f64>,
+    pub index_bytes: Option<f64>,
+    /// ClickHouse: dung lượng chưa nén (xem tỉ lệ nén).
+    pub uncompressed_bytes: Option<f64>,
+}
+
+#[derive(Serialize)]
+pub struct TableSizes {
+    pub tables: Vec<TableStat>,
+    /// false = số dòng là ước lượng của server (MySQL TABLE_ROWS, PostgreSQL reltuples).
+    pub rows_exact: bool,
+}
+
 /// Chuỗi số → f64 (bỏ qua giá trị không phải số).
 fn num(v: &str) -> Option<f64> {
     v.trim().parse::<f64>().ok()
@@ -294,6 +315,16 @@ impl DbManager {
             Backend::Postgres(s) => s.monitor(breakdown).await,
             Backend::ClickHouse(s) => s.monitor(breakdown).await,
             Backend::Redis(s) => s.monitor(breakdown).await,
+        }
+    }
+
+    /// Dung lượng + số dòng từng bảng của một database.
+    pub async fn table_sizes(&self, id: &str, database: &str) -> anyhow::Result<TableSizes> {
+        match &self.get(id).await?.backend {
+            Backend::Mysql(s) => s.table_sizes(database).await,
+            Backend::Postgres(s) => s.table_sizes(database).await,
+            Backend::ClickHouse(s) => s.table_sizes(database).await,
+            Backend::Redis(_) => anyhow::bail!("Redis has no tables"),
         }
     }
 
@@ -529,6 +560,15 @@ mod tests {
         assert!(out.results.iter().any(|r| r.affected == Some(2)), "INSERT báo 2 dòng");
         let dbs = list_databases(&spec).await.expect("list databases");
         assert!(dbs.contains(&path[0]), "thiếu {} trong {dbs:?}", path[0]);
+        let sizes = m.table_sizes(&id, &path[0]).await.expect("table sizes");
+        let t = sizes
+            .tables
+            .iter()
+            .find(|t| t.name == "t" || t.name.ends_with(".t"))
+            .unwrap_or_else(|| panic!("thiếu bảng t: {:?}", sizes.tables.iter().map(|t| &t.name).collect::<Vec<_>>()));
+        if sizes.rows_exact {
+            assert_eq!(t.rows, Some(2.0), "ClickHouse đếm chính xác");
+        }
 
         // Giới hạn dòng → truncated, không lỗi.
         let out = m.query(&id, None, big, 10).await.expect("big");

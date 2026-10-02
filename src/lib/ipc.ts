@@ -256,6 +256,21 @@ export interface DbMonitorSnapshot {
   tables: DbMonitorTable[];
 }
 
+export interface DbTableStat {
+  name: string;
+  engine: string | null;
+  rows: number | null;
+  total_bytes: number;
+  data_bytes: number | null;
+  index_bytes: number | null;
+  uncompressed_bytes: number | null;
+}
+export interface DbTableSizes {
+  tables: DbTableStat[];
+  /** false = số dòng là ước lượng của server. */
+  rows_exact: boolean;
+}
+
 export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
@@ -485,6 +500,8 @@ export const api = {
   dbMonitor: (sessionId: string, breakdown: boolean) =>
     invoke<DbMonitorSnapshot>("db_monitor", { sessionId, breakdown }),
   dbMonitorKill: (sessionId: string, target: string) => invoke<void>("db_monitor_kill", { sessionId, target }),
+  dbTableSizes: (sessionId: string, database: string) =>
+    invoke<DbTableSizes>("db_table_sizes", { sessionId, database }),
 
   getBuckets: () => invoke<StorageBucket[]>("get_buckets"),
   upsertBucket: (input: StorageBucketInput) => invoke<StorageBucket>("upsert_bucket", { input }),

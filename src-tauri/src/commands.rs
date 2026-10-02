@@ -2767,6 +2767,12 @@ pub async fn db_monitor(
     state.dbc.monitor(&session_id, breakdown.unwrap_or(false)).await.map_err(e)
 }
 
+/// Dung lượng + số dòng từng bảng của một database (popup Disk usage của Monitor).
+#[tauri::command]
+pub async fn db_table_sizes(state: State<'_, AppState>, session_id: String, database: String) -> R<crate::dbclient::TableSizes> {
+    state.dbc.table_sizes(&session_id, &database).await.map_err(e)
+}
+
 /// Huỷ một query / client từ bảng hoạt động của Monitor (không cho phép khi read-only).
 #[tauri::command]
 pub async fn db_monitor_kill(state: State<'_, AppState>, session_id: String, target: String) -> R<()> {

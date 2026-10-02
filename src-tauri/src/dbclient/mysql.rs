@@ -4,7 +4,7 @@
 //! `USE db`, biến phiên…), `meta` cho cây schema và `KILL QUERY` — để duyệt bảng
 //! hay huỷ không phải chờ một query dài đang chạy.
 
-use super::{num, quote_mysql, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
+use super::{num, quote_mysql, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TableSizes, TableStat, TreeNode};
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, OptsBuilder, Row, SslOpts, Value};
 use tokio::sync::Mutex;
@@ -220,6 +220,37 @@ impl MySession {
             snap.breakdown = Some(sizes.into_iter().map(|(db, b)| (db, b.as_deref().and_then(num).unwrap_or(0.0))).collect());
         }
         Ok(snap)
+    }
+
+    /// Bảng của một database: engine, số dòng (ước lượng), data + index (byte).
+    pub async fn table_sizes(&self, database: &str) -> anyhow::Result<TableSizes> {
+        let mut g = self.meta().await?;
+        let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>)> = g
+            .as_mut()
+            .expect("meta conn")
+            .exec(
+                "SELECT TABLE_NAME, ENGINE, CAST(TABLE_ROWS AS CHAR), CAST(DATA_LENGTH AS CHAR), CAST(INDEX_LENGTH AS CHAR) \
+                 FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' \
+                 ORDER BY DATA_LENGTH + INDEX_LENGTH DESC",
+                (database,),
+            )
+            .await?;
+        let n = |v: &Option<String>| v.as_deref().and_then(num);
+        Ok(TableSizes {
+            tables: rows
+                .into_iter()
+                .map(|(name, engine, r, d, i)| TableStat {
+                    total_bytes: n(&d).unwrap_or(0.0) + n(&i).unwrap_or(0.0),
+                    rows: n(&r),
+                    data_bytes: n(&d),
+                    index_bytes: n(&i),
+                    uncompressed_bytes: None,
+                    engine,
+                    name,
+                })
+                .collect(),
+            rows_exact: false,
+        })
     }
 
     /// KILL QUERY <id> (id là số thread trong PROCESSLIST).

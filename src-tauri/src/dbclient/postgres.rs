@@ -5,7 +5,7 @@
 //! bằng simple-query: nhiều câu một lần, mọi giá trị về dạng text — hợp cho lưới
 //! kết quả hiển thị kiểu bất kỳ.
 
-use super::{num, tls, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
+use super::{num, tls, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TableSizes, TableStat, TreeNode};
 use futures_util::{pin_mut, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -242,6 +242,40 @@ impl PgSession {
             );
         }
         Ok(snap)
+    }
+
+    /// Bảng của một database (mọi schema người dùng): số dòng ước lượng (reltuples),
+    /// tổng dung lượng / phần bảng / phần index.
+    pub async fn table_sizes(&self, database: &str) -> anyhow::Result<TableSizes> {
+        let c = self.client(database).await?;
+        let rows = text_rows(
+            &c.client,
+            "SELECT n.nspname || '.' || c.relname, \
+               CASE c.relkind WHEN 'p' THEN 'partitioned' WHEN 'm' THEN 'materialized view' ELSE 'table' END, \
+               CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END, \
+               pg_total_relation_size(c.oid), pg_relation_size(c.oid), pg_indexes_size(c.oid) \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relkind IN ('r', 'p', 'm') AND n.nspname NOT IN ('pg_catalog', 'information_schema') \
+               AND n.nspname NOT LIKE 'pg\\_toast%' \
+             ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 2000",
+        )
+        .await?;
+        let n = |r: &Vec<Option<String>>, i: usize| r.get(i).cloned().flatten().as_deref().and_then(num);
+        Ok(TableSizes {
+            tables: rows
+                .iter()
+                .map(|r| TableStat {
+                    name: r.first().cloned().flatten().unwrap_or_default(),
+                    engine: r.get(1).cloned().flatten(),
+                    rows: n(r, 2),
+                    total_bytes: n(r, 3).unwrap_or(0.0),
+                    data_bytes: n(r, 4),
+                    index_bytes: n(r, 5),
+                    uncompressed_bytes: None,
+                })
+                .collect(),
+            rows_exact: false,
+        })
     }
 
     /// pg_cancel_backend(pid): huỷ câu lệnh đang chạy (không cắt phiên).
