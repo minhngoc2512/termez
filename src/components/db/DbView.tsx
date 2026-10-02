@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, ListChecks, Square, History, Download, Loader2, AlertTriangle, RotateCw, Database, Lock } from "lucide-react";
+import { Play, ListChecks, Square, History, Download, Loader2, AlertTriangle, RotateCw, Database, Lock, WandSparkles } from "lucide-react";
 import * as dbPool from "../../lib/dbPool";
 import type { DbKind, DbTreeNode } from "../../lib/ipc";
 import { dialectOf, qualifiedTable, quoteIdent, dangerousStatements, toCsv, toJson } from "../../lib/sql";
-import { confirmDialog } from "../../lib/dialogs";
+import { confirmDialog, alertDialog } from "../../lib/dialogs";
 import { copyText } from "../../lib/clipboard";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 import { ResultGrid } from "./ResultGrid";
@@ -272,6 +272,12 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
             </SelectContent>
           </Select>
 
+          {d !== "redis" && (
+            <Button size="sm" variant="ghost" onClick={() => editor.current?.format()} title="Format SQL (Ctrl+Alt+L)">
+              <WandSparkles className="size-4" /> Format
+            </Button>
+          )}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="ghost" title="Query history" disabled={hist.length === 0}>
@@ -322,6 +328,7 @@ export function DbView({ panelId, connId, kind }: { panelId: string; connId: str
               schema={schema}
               onChange={(sql) => dbPool.update(panelId, { sql })}
               onRun={(all) => void run(all)}
+              onFormatError={(msg) => alertDialog({ title: "Couldn't format SQL", message: msg })}
             />
           </div>
           <div className="h-1 shrink-0 cursor-row-resize border-y border-border bg-sidebar hover:bg-primary/40" onMouseDown={dragSplit} />

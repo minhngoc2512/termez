@@ -44,9 +44,22 @@ function language(d: Dialect, schema: Record<string, string[]>): Extension {
   return sql({ dialect: d === "postgres" ? PostgreSQL : MySQL, schema, upperCaseKeywords: true });
 }
 
+/** Format SQL (thư viện tải khi dùng lần đầu). Redis không có format. */
+async function formatSql(text: string, d: Dialect): Promise<string> {
+  const { format } = await import("sql-formatter");
+  return format(text, {
+    language: d === "postgres" ? "postgresql" : d === "clickhouse" ? "clickhouse" : "mysql",
+    keywordCase: "upper",
+    tabWidth: 2,
+    linesBetweenQueries: 1,
+  });
+}
+
 export interface SqlEditorHandle {
   /** Văn bản để chạy: vùng chọn; không chọn → câu tại con trỏ (hoặc cả script nếu `all`). */
   runText(all: boolean): string;
+  /** Format vùng chọn, hoặc cả nội dung nếu không chọn gì. */
+  format(): Promise<void>;
   focus(): void;
 }
 
@@ -57,17 +70,36 @@ interface Props {
   schema: Record<string, string[]>;
   onChange: (v: string) => void;
   onRun: (all: boolean) => void;
+  /** Lỗi khi format (cú pháp không hiểu được…). */
+  onFormatError?: (msg: string) => void;
 }
 
 export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
-  { value, dialect, schema, onChange, onRun },
+  { value, dialect, schema, onChange, onRun, onFormatError },
   ref
 ) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const lang = useRef(new Compartment());
-  const cb = useRef({ onChange, onRun, dialect });
-  cb.current = { onChange, onRun, dialect };
+  const cb = useRef({ onChange, onRun, dialect, onFormatError });
+  cb.current = { onChange, onRun, dialect, onFormatError };
+
+  async function doFormat() {
+    const v = view.current;
+    if (!v || cb.current.dialect === "redis") return;
+    const sel = v.state.selection.main;
+    const from = sel.empty ? 0 : sel.from;
+    const to = sel.empty ? v.state.doc.length : sel.to;
+    const text = v.state.sliceDoc(from, to);
+    if (!text.trim()) return;
+    try {
+      const out = await formatSql(text, cb.current.dialect);
+      v.dispatch({ changes: { from, to, insert: out }, selection: { anchor: from } });
+      v.focus();
+    } catch (e) {
+      cb.current.onFormatError?.(String(e));
+    }
+  }
 
   useEffect(() => {
     const v = new EditorView({
@@ -87,7 +119,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           placeholder(
             dialect === "redis"
               ? "GET key   (one command per line · Ctrl+Enter: run line · Ctrl+Shift+Enter: run all)"
-              : "SELECT …   (Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all)"
+              : "SELECT …   (Ctrl+Enter: run statement · Ctrl+Shift+Enter: run all · Ctrl+Alt+L: format)"
           ),
           lang.current.of(language(dialect, {})),
           syntaxHighlighting(highlight),
@@ -96,6 +128,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
             keymap.of([
               { key: "Mod-Enter", run: () => (cb.current.onRun(false), true) },
               { key: "Mod-Shift-Enter", run: () => (cb.current.onRun(true), true) },
+              // Format như DataGrip (Ctrl+Alt+L) và VS Code (Shift+Alt+F).
+              { key: "Mod-Alt-l", run: () => (void doFormat(), true) },
+              { key: "Shift-Alt-f", run: () => (void doFormat(), true) },
             ])
           ),
           keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...completionKeymap, indentWithTab]),
@@ -136,6 +171,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       if (all) return doc;
       return statementAt(doc, sel.head, cb.current.dialect)?.text ?? "";
     },
+    format: doFormat,
     focus() {
       view.current?.focus();
     },
