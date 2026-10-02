@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 const KEEP = 90; // số mẫu giữ lại cho biểu đồ
+/** Box bảng hoạt động / query log: cao cố định, nội dung cuộn bên trong. */
+const BOX = "flex h-[28rem] min-w-0 flex-col overflow-hidden";
 const INTERVALS = [1, 2, 5, 10];
 const BREAKDOWN_EVERY_MS = 30_000; // dung lượng/keys: đo thưa hơn (truy vấn nặng hơn)
 
@@ -227,73 +229,76 @@ export function DbMonitorView({ connId, kind, name }: { connId: string; kind: Db
             </div>
           </div>
         )}
-        {/* Bảng hoạt động để cuối: danh sách đổi liên tục không đẩy phần trên nhảy theo */}
-        {snap.tables.map((t) => (
-          <div key={t.title} className="rounded-xl border border-border bg-card">
-            <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t.title} <span className="font-normal normal-case">({t.rows.length})</span>
-            </div>
-            {t.rows.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-muted-foreground">Nothing right now.</p>
-            ) : (
-              <div className="max-h-96 overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-card text-left text-muted-foreground">
-                    <tr>
-                      {t.columns.map((c) => (
-                        <th key={c} className="whitespace-nowrap px-3 py-1.5 font-medium">
-                          {c}
-                        </th>
-                      ))}
-                      {t.killable && <th className="w-16" />}
-                    </tr>
-                  </thead>
-                  <tbody className="font-mono">
-                    {t.rows.map((r, i) => (
-                      <tr key={r.id ?? i} className="border-t border-border/60 hover:bg-accent/40">
-                        {r.cells.map((c, ci) => (
-                          <td
-                            key={ci}
-                            className={cn("max-w-[32rem] px-3 py-1.5", ci === r.cells.length - 1 ? "selectable truncate" : "whitespace-nowrap")}
-                            title={c ?? undefined}
-                          >
-                            {c ?? <span className="text-muted-foreground/60">—</span>}
-                          </td>
-                        ))}
-                        {t.killable && (
-                          <td className="px-2 py-1 text-right">
-                            {r.id && (
-                              <button
-                                disabled={readOnly}
-                                onClick={() => kill(r.id!, t.title === "Clients" ? "client" : "query")}
-                                title={readOnly ? "Read-only connection" : "Cancel this query / disconnect this client"}
-                                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-sans text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30"
-                              >
-                                <OctagonX className="size-3.5" /> Kill
-                              </button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        {/* Bảng hoạt động để cuối, chia đôi màn hình (running queries | query log);
+            mỗi box cao cố định và tự cuộn — danh sách đổi liên tục không làm trang nhảy. */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          {snap.tables.map((t) => (
+            <div key={t.title} className={cn(BOX, "rounded-xl border border-border bg-card")}>
+              <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {t.title} <span className="font-normal normal-case">({t.rows.length})</span>
               </div>
-            )}
-          </div>
-        ))}
+              {t.rows.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-muted-foreground">Nothing right now.</p>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-card text-left text-muted-foreground">
+                      <tr>
+                        {t.columns.map((c) => (
+                          <th key={c} className="whitespace-nowrap px-3 py-1.5 font-medium">
+                            {c}
+                          </th>
+                        ))}
+                        {t.killable && <th className="w-16" />}
+                      </tr>
+                    </thead>
+                    <tbody className="font-mono">
+                      {t.rows.map((r, i) => (
+                        <tr key={r.id ?? i} className="border-t border-border/60 hover:bg-accent/40">
+                          {r.cells.map((c, ci) => (
+                            <td
+                              key={ci}
+                              className={cn("max-w-[32rem] px-3 py-1.5", ci === r.cells.length - 1 ? "selectable truncate" : "whitespace-nowrap")}
+                              title={c ?? undefined}
+                            >
+                              {c ?? <span className="text-muted-foreground/60">—</span>}
+                            </td>
+                          ))}
+                          {t.killable && (
+                            <td className="px-2 py-1 text-right">
+                              {r.id && (
+                                <button
+                                  disabled={readOnly}
+                                  onClick={() => kill(r.id!, t.title === "Clients" ? "client" : "query")}
+                                  title={readOnly ? "Read-only connection" : "Cancel this query / disconnect this client"}
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-sans text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-30"
+                                >
+                                  <OctagonX className="size-3.5" /> Kill
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
 
-        {hasQueryLog(snap) && (
-          <QueryLogPanel
-            log={queryLog.current}
-            version={logVersion}
-            interval={interval}
-            onClear={() => {
-              queryLog.current.clear();
-              setLogVersion((v) => v + 1);
-            }}
-          />
-        )}
+          {hasQueryLog(snap) && (
+            <QueryLogPanel
+              log={queryLog.current}
+              version={logVersion}
+              interval={interval}
+              onClear={() => {
+                queryLog.current.clear();
+                setLogVersion((v) => v + 1);
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -381,8 +386,8 @@ function QueryLogPanel({
   const time = (ms: number) => new Date(ms).toLocaleTimeString();
 
   return (
-    <div className="rounded-xl border border-border bg-card">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+    <div className={cn(BOX, "rounded-xl border border-border bg-card")}>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <ScrollText className="size-4" /> Query log <span className="font-normal normal-case">({log.size})</span>
         </span>
@@ -408,7 +413,7 @@ function QueryLogPanel({
       {list.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted-foreground">{log.size === 0 ? "No queries captured yet." : "No queries match."}</p>
       ) : (
-        <div className="max-h-[32rem] overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {list.slice(0, shown).map((e) => {
             const expanded = open === e.key;
             return (
