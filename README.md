@@ -4,8 +4,9 @@
 
 A fast **SSH / SFTP manager** for Linux, macOS and Windows — a Termius-style desktop
 client built with **Electron** (Chromium) + a **Rust** backend + **React**. Manage a fleet of servers, split
-terminals, browse and move files, keep passwords and cloud storage, watch hosts
-live, and back everything up to your own GitHub repo with end-to-end encryption.
+terminals, browse and move files, query your databases, keep passwords and cloud
+storage, watch hosts live, and back everything up to your own GitHub repo with
+end-to-end encryption.
 
 > **Term** (terminal) + **Ez** (easy).
 
@@ -128,6 +129,22 @@ An `.rpm` is also attached to each release. Maintainer packaging steps live in
 - Copy / cut / paste, new folder, multi-select, right-click menu
 - **Drag-drop upload** with progress, speed and conflict resolution
 - **Bucket-to-bucket transfer** in an SFTP-style dual pane (any provider to any)
+
+**Databases** — MySQL / MariaDB, PostgreSQL, ClickHouse, MongoDB, Redis, BigQuery
+- Connect **directly or through any host's SSH tunnel**; passwords and keys stay
+  in the OS keychain. BigQuery signs in with a **service account key** or
+  **gcloud / Application Default Credentials**
+- **Per-connection read-only switch** — writes are refused before they reach the
+  server (BigQuery dry-runs each statement); connection **groups**
+- Schema tree, editor with autocomplete and **Ctrl+Alt+L format**, run statement /
+  run all / cancel, virtualized result grid with **sort and per-column filter**,
+  CSV / JSON export, query history; MongoDB console speaks the mongo shell
+- **Create / drop / truncate** databases, tables and collections, and **manage
+  indexes**, always showing the statement first (destructive ones ask you to type
+  the name)
+- **Live DB Monitor**: throughput charts, running queries you can kill, an
+  in-session query log, disk usage per database and per table
+- BigQuery cost guards: free table preview, optional **max bytes billed**
 
 **Port forwarding**
 - **Local (-L)** and **Dynamic / SOCKS5 (-D)** tunnels, start/stop with live status
