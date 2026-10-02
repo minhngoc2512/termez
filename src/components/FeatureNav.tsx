@@ -1,5 +1,5 @@
 import {
-  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud, CloudOff, Database,
+  Server, Key, Cable, FolderOpen, KeyRound, Code2, ShieldCheck, Radar, Globe, HardDrive, Settings, Cloud, CloudOff, CloudAlert, Database,
   SquareTerminal, ChevronRight, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,13 +49,15 @@ interface Props {
   onSelect: (s: Section) => void;
   onSync: () => void;
   syncConfigured?: boolean;
+  /** Auto-sync tạm dừng (chốt chặn mất dữ liệu) — cần người dùng xử lý. */
+  syncPaused?: boolean;
   sessions?: Session[];
   activeSession?: string | null;
   onOpenSession?: (id: string) => void;
   onCloseSession?: (id: string) => void;
 }
 
-export function FeatureNav({ section, onSelect, onSync, syncConfigured = true, sessions = [], activeSession, onOpenSession, onCloseSession }: Props) {
+export function FeatureNav({ section, onSelect, onSync, syncConfigured = true, syncPaused = false, sessions = [], activeSession, onOpenSession, onCloseSession }: Props) {
   const hosts = useStore((s) => s.hosts);
   const entries = useStore((s) => s.entries);
   const tunnels = useStore((s) => s.tunnels);
@@ -120,10 +122,12 @@ export function FeatureNav({ section, onSelect, onSync, syncConfigured = true, s
       </nav>
       <div className="border-t border-border p-2">
         <NavRow
-          icon={syncConfigured ? Cloud : CloudOff}
-          iconClassName={syncConfigured ? undefined : "text-red-500"}
+          icon={syncConfigured ? (syncPaused ? CloudAlert : Cloud) : CloudOff}
+          iconClassName={syncConfigured ? (syncPaused ? "text-amber-500" : undefined) : "text-red-500"}
           label="Cloud Sync"
-          title={syncConfigured ? undefined : "Chưa cấu hình đồng bộ"}
+          title={
+            !syncConfigured ? "Chưa cấu hình đồng bộ" : syncPaused ? "Auto-sync paused — open Cloud Sync to resolve" : undefined
+          }
           onClick={onSync}
         />
         <NavRow

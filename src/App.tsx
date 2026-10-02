@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { applyAppTheme, useStore } from "./store";
 import { api, DbConnection, DbKind, Host } from "./lib/ipc";
-import { SyncConflictDialog } from "./components/SyncConflictDialog";
+import { SyncGuardDialog } from "./components/SyncGuardDialog";
 
 // Màn Databases (CodeMirror…) chỉ tải khi dùng tới — không làm chậm lúc mở app.
 const DatabasesPage = lazy(() => import("./components/db/DatabasesPage").then((m) => ({ default: m.DatabasesPage })));
@@ -127,13 +127,29 @@ export default function App() {
   // Trạng thái đã cấu hình đồng bộ chưa (repo + PAT) → đổi icon Cloud Sync trên menu.
   // Kiểm tra lúc mở app và mỗi khi đóng dialog Sync (có thể vừa setup xong).
   const [syncConfigured, setSyncConfigured] = useState(false);
+  // Auto-sync tạm dừng vì bị chốt chặn mất dữ liệu → icon vàng cảnh báo.
+  const [syncPaused, setSyncPaused] = useState(false);
   useEffect(() => {
     if (syncOpen) return;
     api
       .syncGetConfig()
-      .then((c) => setSyncConfigured(!!c.repo && c.has_pat))
+      .then((c) => {
+        setSyncConfigured(!!c.repo && c.has_pat);
+        setSyncPaused(c.paused);
+      })
       .catch(() => {});
   }, [syncOpen]);
+  useEffect(() => {
+    let un: Promise<() => void> | undefined;
+    try {
+      un = listen("sync:guard", () => setSyncPaused(true));
+    } catch {
+      /* ngoài app */
+    }
+    return () => {
+      un?.then((f) => f()).catch(() => {});
+    };
+  }, []);
 
   // Trạng thái kết nối SSH → popup Connecting / Failed.
   useEffect(() => {
@@ -560,6 +576,7 @@ export default function App() {
               onSelect={selectSection}
               onSync={() => setSyncOpen(true)}
               syncConfigured={syncConfigured}
+              syncPaused={syncPaused}
               sessions={taskDisplay.map((t) => ({ id: t.id, title: t.name }))}
               activeSession={activeTask}
               onOpenSession={switchTask}
@@ -662,7 +679,7 @@ export default function App() {
         <HostForm open={formOpen} host={editing} preset={preset} onOpenChange={setFormOpen} onSaved={refresh} />
         <KeyManager open={keysOpen} onOpenChange={setKeysOpen} />
         <SyncDialog open={syncOpen} onOpenChange={setSyncOpen} />
-        <SyncConflictDialog />
+        <SyncGuardDialog />
         <DialogHost />
         <UpdateManager />
         <HostPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={openHost} />

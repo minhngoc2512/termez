@@ -214,6 +214,31 @@ export interface CfInput {
   comment?: string | null;
 }
 
+/** Một phiên bản vault trong lịch sử repo Cloud Sync. */
+export interface VaultVersion {
+  commit: string;
+  date: string;
+  message: string;
+}
+
+export interface VaultSummary {
+  hosts: number;
+  groups: number;
+  keys: number;
+  tunnels: number;
+  entries: number;
+  folders: number;
+  buckets: number;
+  secrets: number;
+  host_labels: string[];
+}
+
+/** Payload sự kiện "sync:guard" — sync bị chặn vì sẽ mất dữ liệu hàng loạt. */
+export interface SyncGuard {
+  direction: "push" | "pull";
+  details: string;
+}
+
 export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
@@ -470,16 +495,21 @@ export const api = {
     invoke<number>("s3_transfer_prefix", { srcBucketId, srcPrefix, dstBucketId, dstPrefix }),
 
   syncGetConfig: () =>
-    invoke<{ repo: string | null; has_pat: boolean; auto: boolean }>("sync_get_config"),
+    invoke<{ repo: string | null; has_pat: boolean; auto: boolean; disabled: boolean; paused: boolean }>("sync_get_config"),
   syncSaveConfig: (pat: string | null, repo: string) =>
     invoke<void>("sync_save_config", { pat, repo }),
   syncSetAuto: (enabled: boolean, master: string | null) =>
     invoke<void>("sync_set_auto", { enabled, master }),
-  syncPush: (master: string) => invoke<string>("sync_push", { master }),
+  syncPush: (master: string, force = false) => invoke<string>("sync_push", { master, force }),
   syncPull: (master: string) => invoke<string>("sync_pull", { master }),
   syncAutoPull: () => invoke<string>("sync_auto_pull"),
   syncResolveConflict: (choice: "local" | "remote") =>
     invoke<string>("sync_resolve_conflict", { choice }),
+  syncHistory: () => invoke<VaultVersion[]>("sync_history"),
+  syncPreviewVersion: (commit: string, master: string | null) =>
+    invoke<VaultSummary>("sync_preview_version", { commit, master }),
+  syncRestoreVersion: (commit: string, master: string | null) =>
+    invoke<string>("sync_restore_version", { commit, master }),
 
   getTunnels: () => invoke<Tunnel[]>("get_tunnels"),
   upsertTunnel: (input: TunnelInput) => invoke<Tunnel>("upsert_tunnel", { input }),

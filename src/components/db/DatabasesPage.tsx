@@ -178,10 +178,16 @@ export function DatabasesPage({ onOpen }: { onOpen: (c: DbConnection) => void })
             {c.host}:{c.port}
             {c.database ? `/${c.database}` : ""}
           </div>
-          {via && (
+          {via ? (
             <div className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
               <Cable className="size-3" /> via {via.label}
             </div>
+          ) : (
+            c.ssh_host_id && (
+              <div className="flex items-center gap-1 truncate text-[11px] text-destructive" title="Edit the connection and pick an SSH host again">
+                <Cable className="size-3" /> SSH host missing
+              </div>
+            )
           )}
         </div>
         <div className="absolute right-2 top-2 hidden gap-0.5 group-hover:flex">

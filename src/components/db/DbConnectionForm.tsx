@@ -231,11 +231,14 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
             </div>
           </label>
 
-          <Field label="Connect through SSH (tunnel)">
+          <Field label={sshHostId && !via ? "Connect through SSH (tunnel) — ⚠ the saved host no longer exists" : "Connect through SSH (tunnel)"}>
             <Select value={sshHostId ?? NONE} onValueChange={(v) => setSshHostId(v === NONE ? null : v)}>
               <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>(direct connection)</SelectItem>
+                {sshHostId && !via && (
+                  <SelectItem value={sshHostId}>⚠ Missing host (deleted) — pick another</SelectItem>
+                )}
                 {hosts.map((h) => (
                   <SelectItem key={h.id} value={h.id}>
                     {h.label} ({h.username}@{h.address})

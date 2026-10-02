@@ -263,6 +263,59 @@ pub fn merge_vaults(base: &Vault, local: &Vault, remote: &Vault) -> Vault {
     }
 }
 
+/// Chặn mất dữ liệu hàng loạt: đi từ `before` sang `after` mà một loại dữ liệu có
+/// ≥ 2 bản ghi bị mất sạch hoặc còn chưa tới một nửa → trả mô tả để hỏi xác nhận.
+/// (Sự cố 10-01: một instance test đẩy vault gần rỗng đè lên vault thật.)
+pub fn mass_loss(before: &Vault, after: &Vault) -> Option<String> {
+    let rows = [
+        ("hosts", before.hosts.len(), after.hosts.len()),
+        ("host groups", before.groups.len(), after.groups.len()),
+        ("SSH keys", before.keys.len(), after.keys.len()),
+        ("tunnels", before.tunnels.len(), after.tunnels.len()),
+        ("vault entries", before.entries.len(), after.entries.len()),
+        ("vault folders", before.folders.len(), after.folders.len()),
+        ("storage connections", before.buckets.len(), after.buckets.len()),
+    ];
+    let lost: Vec<String> = rows
+        .iter()
+        .filter(|(_, b, a)| *b >= 2 && (*a == 0 || a * 2 < *b))
+        .map(|(n, b, a)| format!("{n} {b} → {a}"))
+        .collect();
+    (!lost.is_empty()).then(|| lost.join(", "))
+}
+
+/// Số lượng từng loại dữ liệu (hiển thị khi xem lịch sử / khôi phục).
+#[derive(Serialize)]
+pub struct VaultSummary {
+    pub hosts: usize,
+    pub groups: usize,
+    pub keys: usize,
+    pub tunnels: usize,
+    pub entries: usize,
+    pub folders: usize,
+    pub buckets: usize,
+    pub secrets: usize,
+    pub host_labels: Vec<String>,
+}
+
+impl Vault {
+    pub fn summary(&self) -> VaultSummary {
+        let mut host_labels: Vec<String> = self.hosts.iter().map(|h| h.label.clone()).collect();
+        host_labels.sort_by_key(|l| l.to_lowercase());
+        VaultSummary {
+            hosts: self.hosts.len(),
+            groups: self.groups.len(),
+            keys: self.keys.len(),
+            tunnels: self.tunnels.len(),
+            entries: self.entries.len(),
+            folders: self.folders.len(),
+            buckets: self.buckets.len(),
+            secrets: self.secrets.len(),
+            host_labels,
+        }
+    }
+}
+
 // ---------- GitHub Contents API ----------
 
 /// Tách "owner/repo".
@@ -272,6 +325,19 @@ pub fn parse_repo(repo: &str) -> anyhow::Result<(String, String)> {
         (Some(o), Some(r)) if !o.is_empty() && !r.is_empty() => Ok((o.to_string(), r.to_string())),
         _ => anyhow::bail!("repo phải dạng owner/repo"),
     }
+}
+
+/// Địa chỉ GitHub API. Bản build thường luôn là api.github.com; chỉ test mới trỏ
+/// sang server giả (không cho đổi bằng biến môi trường trên máy người dùng).
+#[cfg(not(test))]
+fn api_base() -> String {
+    "https://api.github.com".to_string()
+}
+#[cfg(test)]
+pub static TEST_API_BASE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+#[cfg(test)]
+fn api_base() -> String {
+    TEST_API_BASE.get().cloned().unwrap_or_else(|| "https://api.github.com".to_string())
 }
 
 fn client() -> reqwest::Client {
@@ -284,7 +350,7 @@ pub async fn get_vault(
     owner: &str,
     repo: &str,
 ) -> anyhow::Result<Option<(String, String)>> {
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{VAULT_PATH}");
+    let url = format!("{}/repos/{owner}/{repo}/contents/{VAULT_PATH}", api_base());
     let resp = client()
         .get(&url)
         .header("Authorization", format!("Bearer {pat}"))
@@ -314,7 +380,7 @@ pub async fn put_vault(
     sha: Option<String>,
     message: &str,
 ) -> anyhow::Result<String> {
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{VAULT_PATH}");
+    let url = format!("{}/repos/{owner}/{repo}/contents/{VAULT_PATH}", api_base());
     let mut body = serde_json::json!({ "message": message, "content": content_b64 });
     if let Some(s) = sha {
         body["sha"] = serde_json::Value::String(s);
@@ -336,9 +402,96 @@ pub async fn put_vault(
     Ok(j["content"]["sha"].as_str().unwrap_or("").to_string())
 }
 
+/// Một phiên bản vault.enc trong lịch sử repo.
+#[derive(Serialize)]
+pub struct VaultVersion {
+    pub commit: String,
+    /// ISO-8601 (UTC).
+    pub date: String,
+    pub message: String,
+}
+
+fn gh(url: &str, pat: &str) -> reqwest::RequestBuilder {
+    client()
+        .get(url)
+        .header("Authorization", format!("Bearer {pat}"))
+        .header("User-Agent", "Termez")
+        .header("Accept", "application/vnd.github+json")
+}
+
+/// Các commit đã thay đổi vault.enc (mới nhất trước).
+pub async fn list_versions(pat: &str, owner: &str, repo: &str) -> anyhow::Result<Vec<VaultVersion>> {
+    let url = format!("{}/repos/{owner}/{repo}/commits?path={VAULT_PATH}&per_page=60", api_base());
+    let resp = gh(&url, pat).send().await?;
+    if !resp.status().is_success() {
+        let s = resp.status();
+        anyhow::bail!("GitHub GET lỗi {}: {}", s, resp.text().await.unwrap_or_default());
+    }
+    let list: Vec<serde_json::Value> = resp.json().await?;
+    Ok(list
+        .iter()
+        .map(|c| VaultVersion {
+            commit: c["sha"].as_str().unwrap_or("").to_string(),
+            date: c["commit"]["committer"]["date"].as_str().unwrap_or("").to_string(),
+            message: c["commit"]["message"].as_str().unwrap_or("").to_string(),
+        })
+        .collect())
+}
+
+/// Nội dung vault.enc (base64) tại một commit.
+pub async fn get_vault_at(pat: &str, owner: &str, repo: &str, commit: &str) -> anyhow::Result<String> {
+    if !commit.chars().all(|c| c.is_ascii_hexdigit()) || commit.len() < 7 {
+        anyhow::bail!("commit không hợp lệ");
+    }
+    let url = format!("{}/repos/{owner}/{repo}/contents/{VAULT_PATH}?ref={commit}", api_base());
+    let resp = gh(&url, pat).send().await?;
+    if !resp.status().is_success() {
+        let s = resp.status();
+        anyhow::bail!("GitHub GET lỗi {}: {}", s, resp.text().await.unwrap_or_default());
+    }
+    let j: serde_json::Value = resp.json().await?;
+    Ok(j["content"].as_str().unwrap_or("").replace(['\n', '\r'], ""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mass_loss_flags_wipes_not_small_edits() {
+        let host = |id: &str| crate::db::Host {
+            id: id.into(),
+            group_id: None,
+            label: id.into(),
+            address: "h".into(),
+            port: 22,
+            username: "u".into(),
+            auth_type: "password".into(),
+            password: None,
+            private_key_path: None,
+            passphrase: None,
+            key_id: None,
+            startup_snippet: None,
+            keepalive: 0,
+            term_theme: None,
+            font_size: None,
+            proxy_type: None,
+            proxy_host: None,
+            proxy_port: None,
+            proxy_username: None,
+            jump_host_id: None,
+            proxy_command: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let with = |n: usize| Vault { hosts: (0..n).map(|i| host(&i.to_string())).collect(), ..Default::default() };
+        assert!(mass_loss(&with(8), &with(0)).is_some(), "8 → 0 phải bị chặn");
+        assert!(mass_loss(&with(8), &with(2)).is_some(), "8 → 2 phải bị chặn");
+        assert!(mass_loss(&with(8), &with(7)).is_none(), "xoá 1 host là bình thường");
+        assert!(mass_loss(&with(8), &with(4)).is_none(), "còn đúng một nửa — chưa chặn");
+        assert!(mass_loss(&with(1), &with(0)).is_none(), "xoá host duy nhất — không hỏi");
+        assert!(mass_loss(&with(0), &with(5)).is_none(), "thêm thì không sao");
+    }
 
     #[test]
     fn crypto_roundtrip() {

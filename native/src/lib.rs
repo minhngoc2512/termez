@@ -112,6 +112,7 @@ pub async fn init(data_dir: String, on_event: StrFn, on_channel: BufFn) -> napi:
         monitor: Arc::new(monitor::MonitorManager::new()),
         sync_base_path: data_dir.join("sync-base.enc"),
         dbc: Arc::new(dbclient::DbManager::new()),
+        sync_paused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     }));
     let _ = STATE.set(state);
     let _ = APP.set(tauri::AppHandle::new(Arc::new(JsHost { on_event, on_channel })));
