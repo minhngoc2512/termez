@@ -2757,6 +2757,22 @@ pub async fn db_query(
     state.dbc.query(&session_id, database, &sql, limit).await.map_err(e)
 }
 
+/// Một lần đo cho màn Monitor database (gọi định kỳ từ giao diện).
+#[tauri::command]
+pub async fn db_monitor(
+    state: State<'_, AppState>,
+    session_id: String,
+    breakdown: Option<bool>,
+) -> R<crate::dbclient::MonitorSnapshot> {
+    state.dbc.monitor(&session_id, breakdown.unwrap_or(false)).await.map_err(e)
+}
+
+/// Huỷ một query / client từ bảng hoạt động của Monitor (không cho phép khi read-only).
+#[tauri::command]
+pub async fn db_monitor_kill(state: State<'_, AppState>, session_id: String, target: String) -> R<()> {
+    state.dbc.monitor_kill(&session_id, &target).await.map_err(e)
+}
+
 #[tauri::command]
 pub async fn db_cancel(state: State<'_, AppState>, session_id: String) -> R<()> {
     state.dbc.cancel(&session_id).await.map_err(e)

@@ -86,6 +86,36 @@ pub struct SessionInfo {
     pub configured_database: Option<String>,
 }
 
+/// Một lần đo cho màn Monitor. `values` gồm cả bộ đếm luỹ kế (giao diện tự tính
+/// tốc độ từ chênh lệch hai lần đo) lẫn giá trị tức thời — tên khoá theo từng loại DB.
+#[derive(Serialize, Default)]
+pub struct MonitorSnapshot {
+    pub values: HashMap<String, f64>,
+    /// Phân bổ (dung lượng mỗi database, số key mỗi db…) — chỉ khi được hỏi.
+    pub breakdown: Option<Vec<(String, f64)>>,
+    pub tables: Vec<MonitorTable>,
+}
+
+#[derive(Serialize)]
+pub struct MonitorTable {
+    pub title: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<MonitorRow>,
+    /// Dòng có `id` thì huỷ được (KILL QUERY / pg_cancel_backend / CLIENT KILL).
+    pub killable: bool,
+}
+
+#[derive(Serialize)]
+pub struct MonitorRow {
+    pub id: Option<String>,
+    pub cells: Vec<Option<String>>,
+}
+
+/// Chuỗi số → f64 (bỏ qua giá trị không phải số).
+fn num(v: &str) -> Option<f64> {
+    v.trim().parse::<f64>().ok()
+}
+
 enum Backend {
     Mysql(mysql::MySession),
     Postgres(postgres::PgSession),
@@ -255,6 +285,31 @@ impl DbManager {
             Backend::Redis(s) => s.query(database, sql, limit).await?,
         };
         Ok(QueryOutput { results, elapsed_ms: started.elapsed().as_millis() as u64, database })
+    }
+
+    /// Đo chỉ số cho màn Monitor.
+    pub async fn monitor(&self, id: &str, breakdown: bool) -> anyhow::Result<MonitorSnapshot> {
+        match &self.get(id).await?.backend {
+            Backend::Mysql(s) => s.monitor(breakdown).await,
+            Backend::Postgres(s) => s.monitor(breakdown).await,
+            Backend::ClickHouse(s) => s.monitor(breakdown).await,
+            Backend::Redis(s) => s.monitor(breakdown).await,
+        }
+    }
+
+    /// Huỷ một query / client đang chạy (id lấy từ bảng hoạt động của Monitor).
+    /// Kết nối read-only không được phép.
+    pub async fn monitor_kill(&self, id: &str, target: &str) -> anyhow::Result<()> {
+        let session = self.get(id).await?;
+        if session.read_only {
+            anyhow::bail!("Read-only connection — killing queries is disabled.");
+        }
+        match &session.backend {
+            Backend::Mysql(s) => s.kill(target).await,
+            Backend::Postgres(s) => s.kill(target).await,
+            Backend::ClickHouse(s) => s.kill(target).await,
+            Backend::Redis(s) => s.kill(target).await,
+        }
     }
 
     /// Huỷ câu lệnh đang chạy của phiên (nếu có).
@@ -653,6 +708,81 @@ mod tests {
         ] {
             assert!(ensure_read_only(bad).is_err(), "phải chặn: {bad}");
         }
+    }
+
+
+    /// Monitor: có đủ chỉ số; một query dài ở phiên khác hiện trong bảng hoạt động
+    /// và huỷ được bằng monitor_kill; phiên read-only không được kill.
+    async fn monitor_roundtrip(spec: ConnectSpec, keys: &[&str], long: &'static str, marker: &str) {
+        let m = std::sync::Arc::new(DbManager::new());
+        let mon = m.open(spec.clone(), None).await.unwrap().session_id;
+        let snap = m.monitor(&mon, true).await.expect("monitor");
+        for k in keys {
+            assert!(snap.values.contains_key(*k), "thiếu chỉ số {k}: {:?}", snap.values.keys().collect::<Vec<_>>());
+        }
+        assert!(snap.breakdown.is_some(), "thiếu breakdown");
+
+        let worker = m.open(spec.clone(), None).await.unwrap().session_id;
+        let (m2, w2) = (m.clone(), worker.clone());
+        let started = Instant::now();
+        let job = tokio::spawn(async move { m2.query(&w2, None, long, 10).await });
+        // Chờ query dài xuất hiện trong bảng hoạt động rồi kill.
+        let mut target = None;
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let snap = m.monitor(&mon, false).await.unwrap();
+            target = snap.tables[0]
+                .rows
+                .iter()
+                .find(|r| r.cells.iter().flatten().any(|c| c.contains(marker)))
+                .and_then(|r| r.id.clone());
+            if target.is_some() {
+                break;
+            }
+        }
+        let target = target.expect("không thấy query dài trong bảng hoạt động");
+        m.monitor_kill(&mon, &target).await.expect("kill");
+        let _ = tokio::time::timeout(Duration::from_secs(5), job).await.expect("query không dừng sau khi kill");
+        assert!(started.elapsed() < Duration::from_secs(8));
+
+        let ro = m.open(ConnectSpec { read_only: true, ..spec }, None).await.unwrap().session_id;
+        assert!(m.monitor(&ro, false).await.is_ok(), "read-only vẫn xem được monitor");
+        assert!(m.monitor_kill(&ro, &target).await.is_err(), "read-only không được kill");
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn monitor_mysql() {
+        let Some(s) = spec("TERMEZ_TEST_MYSQL", "mysql", "shop", false) else { return };
+        monitor_roundtrip(s, &["Questions", "Threads_connected", "Bytes_received", "max_connections"], "SELECT SLEEP(30) AS termez_mon", "termez_mon").await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn monitor_postgres() {
+        let Some(s) = spec("TERMEZ_TEST_PG", "postgres", "shop", false) else { return };
+        monitor_roundtrip(s, &["xact_commit", "blks_hit", "sessions_total", "locks_waiting", "uptime"], "SELECT pg_sleep(30) AS termez_mon", "termez_mon").await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn monitor_clickhouse() {
+        let Some(s) = spec("TERMEZ_TEST_CH", "clickhouse", "default", false) else { return };
+        monitor_roundtrip(
+            s,
+            &["ev_Query", "m_MemoryTracking", "a_Uptime"],
+            "SELECT sleepEachRow(0.5) AS termez_mon FROM numbers(60) SETTINGS max_block_size = 1",
+            "termez_mon",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn monitor_redis() {
+        let Some(s) = spec("TERMEZ_TEST_REDIS", "redis", "0", false) else { return };
+        // Client chặn ở BLPOP hiện trong CLIENT LIST (cmd=blpop) và bị CLIENT KILL.
+        monitor_roundtrip(s, &["total_commands_processed", "used_memory", "connected_clients", "uptime_in_seconds"], "BLPOP termez_mon 30", "blpop").await;
     }
 
 }

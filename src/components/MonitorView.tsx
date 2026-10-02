@@ -6,14 +6,14 @@ import { cn } from "@/lib/utils";
 
 const KEEP = 60; // số mẫu giữ lại (~2 phút ở 2s/mẫu)
 
-function fmtBytes(b: number): string {
+export function fmtBytes(b: number): string {
   if (b < 1024) return `${Math.round(b)} B`;
   const u = ["KB", "MB", "GB", "TB"];
   let v = b / 1024, i = 0;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v < 10 ? 1 : 0)} ${u[i]}`;
 }
-function fmtUptime(s: number): string {
+export function fmtUptime(s: number): string {
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
   return d > 0 ? `${d}d ${h}h ${m}m` : h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
@@ -126,7 +126,7 @@ export function MonitorView({ hostId }: { hostId: string }) {
   );
 }
 
-function Card({ title, icon: Icon, value, sub, children }: {
+export function Card({ title, icon: Icon, value, sub, children }: {
   title: string; icon: React.ComponentType<{ className?: string }>;
   value: React.ReactNode; sub?: string; children: React.ReactNode;
 }) {
@@ -142,7 +142,7 @@ function Card({ title, icon: Icon, value, sub, children }: {
   );
 }
 
-function Chart({ data, max, color }: { data: number[]; max: number; color: string }) {
+export function Chart({ data, max, color }: { data: number[]; max: number; color: string }) {
   const w = 100, h = 32, n = data.length;
   if (n === 0) return <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full" />;
   const x = (i: number) => (n === 1 ? w : (i / (n - 1)) * w);

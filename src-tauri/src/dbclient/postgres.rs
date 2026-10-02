@@ -5,7 +5,7 @@
 //! bằng simple-query: nhiều câu một lần, mọi giá trị về dạng text — hợp cho lưới
 //! kết quả hiển thị kiểu bất kỳ.
 
-use super::{tls, Column, ConnectSpec, ResultSet, TreeNode};
+use super::{num, tls, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
 use futures_util::{pin_mut, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -183,6 +183,75 @@ impl PgSession {
         Ok(())
     }
 
+    /// Monitor: pg_stat_database (bộ đếm), pg_stat_activity (phiên), pg_locks, uptime.
+    pub async fn monitor(&self, breakdown: bool) -> anyhow::Result<MonitorSnapshot> {
+        let c = self.client(&self.default_db).await?;
+        let mut snap = MonitorSnapshot::default();
+        let stats = text_rows(
+            &c.client,
+            "SELECT sum(xact_commit), sum(xact_rollback), sum(blks_read), sum(blks_hit), \
+               sum(tup_returned) + sum(tup_fetched), sum(tup_inserted) + sum(tup_updated) + sum(tup_deleted), \
+               sum(deadlocks), sum(temp_bytes) FROM pg_stat_database; \
+             SELECT count(*) FILTER (WHERE state = 'active'), count(*) FILTER (WHERE state = 'idle'), \
+               count(*) FILTER (WHERE state LIKE 'idle in transaction%'), count(*) \
+             FROM pg_stat_activity WHERE backend_type = 'client backend'; \
+             SELECT count(*) FROM pg_locks WHERE NOT granted; \
+             SELECT current_setting('max_connections'), extract(epoch FROM now() - pg_postmaster_start_time())",
+        )
+        .await?;
+        let names = [
+            "xact_commit", "xact_rollback", "blks_read", "blks_hit", "rows_read", "rows_written", "deadlocks",
+            "temp_bytes", "sessions_active", "sessions_idle", "sessions_idle_tx", "sessions_total", "locks_waiting",
+            "max_connections", "uptime",
+        ];
+        for (name, v) in names.iter().zip(stats.iter().flatten()) {
+            if let Some(n) = v.as_deref().and_then(num) {
+                snap.values.insert(name.to_string(), n);
+            }
+        }
+        let rows = text_rows(
+            &c.client,
+            "SELECT pid, usename, datname, client_addr::text, state, wait_event_type, \
+               extract(epoch FROM now() - query_start)::int, left(query, 500) \
+             FROM pg_stat_activity \
+             WHERE backend_type = 'client backend' AND pid <> pg_backend_pid() AND state <> 'idle' \
+             ORDER BY query_start NULLS LAST LIMIT 200",
+        )
+        .await?;
+        snap.tables.push(MonitorTable {
+            title: "Running queries".into(),
+            columns: ["pid", "user", "database", "client", "state", "waiting on", "time (s)", "query"].map(String::from).to_vec(),
+            rows: rows
+                .into_iter()
+                .map(|cells| MonitorRow { id: cells.first().cloned().flatten(), cells })
+                .collect(),
+            killable: true,
+        });
+        if breakdown {
+            let sizes = text_rows(
+                &c.client,
+                "SELECT datname, pg_database_size(datname) FROM pg_database \
+                 WHERE datallowconn AND NOT datistemplate ORDER BY 2 DESC LIMIT 20",
+            )
+            .await?;
+            snap.breakdown = Some(
+                sizes
+                    .into_iter()
+                    .filter_map(|r| Some((r.first()?.clone()?, r.get(1)?.as_deref().and_then(num).unwrap_or(0.0))))
+                    .collect(),
+            );
+        }
+        Ok(snap)
+    }
+
+    /// pg_cancel_backend(pid): huỷ câu lệnh đang chạy (không cắt phiên).
+    pub async fn kill(&self, target: &str) -> anyhow::Result<()> {
+        let pid: i32 = target.parse().map_err(|_| anyhow::anyhow!("pid không hợp lệ"))?;
+        let c = self.client(&self.default_db).await?;
+        c.client.query_one("SELECT pg_cancel_backend($1)", &[&pid]).await.map_err(pg_error)?;
+        Ok(())
+    }
+
     /// Cây: [] → databases; [db] → schemas; [db, schema] → bảng/view; [db, schema, bảng] → cột.
     pub async fn tree(&self, path: &[String]) -> anyhow::Result<Vec<TreeNode>> {
         let node = |name: String, kind: &str, detail: Option<String>, leaf: bool| TreeNode {
@@ -271,6 +340,20 @@ impl PgSession {
             _ => Vec::new(),
         })
     }
+}
+
+/// Chạy (nhiều) câu bằng simple-query, trả mọi dòng dạng text (gộp các tập kết quả).
+async fn text_rows(client: &Client, sql: &str) -> anyhow::Result<Vec<Vec<Option<String>>>> {
+    Ok(client
+        .simple_query(sql)
+        .await
+        .map_err(pg_error)?
+        .into_iter()
+        .filter_map(|m| match m {
+            SimpleQueryMessage::Row(r) => Some((0..r.len()).map(|i| r.get(i).map(str::to_string)).collect()),
+            _ => None,
+        })
+        .collect())
 }
 
 /// Lỗi server → thông điệp gọn kèm vị trí/gợi ý (mặc định chỉ "db error").

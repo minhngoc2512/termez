@@ -4,7 +4,7 @@
 //! tách đối số như shell (hỗ trợ "…" và '…'). Mỗi kết quả thành một bảng.
 //! Read-only: chặn mọi lệnh mà server đánh dấu `write` (theo `COMMAND INFO`).
 
-use super::{Column, ConnectSpec, ResultSet, TreeNode};
+use super::{num, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
 use redis::aio::MultiplexedConnection;
 use redis::Value;
 use std::collections::HashMap;
@@ -155,6 +155,98 @@ impl RedisSession {
 
     pub async fn cancel(&self) -> anyhow::Result<()> {
         self.cancel.notify_waiters();
+        Ok(())
+    }
+
+    /// Monitor: INFO (bộ đếm + tức thời), CLIENT LIST (huỷ được), SLOWLOG.
+    pub async fn monitor(&self, breakdown: bool) -> anyhow::Result<MonitorSnapshot> {
+        const KEYS: [&str; 17] = [
+            "total_commands_processed", "instantaneous_ops_per_sec", "keyspace_hits", "keyspace_misses",
+            "evicted_keys", "expired_keys", "total_net_input_bytes", "total_net_output_bytes",
+            "connected_clients", "blocked_clients", "used_memory", "used_memory_rss", "maxmemory",
+            "uptime_in_seconds", "total_connections_received", "rejected_connections", "mem_fragmentation_ratio",
+        ];
+        let mut c = self.conn(self.default_db).await?;
+        let info: String = redis::cmd("INFO").arg("all").query_async(&mut c).await?;
+        let mut snap = MonitorSnapshot::default();
+        let mut keyspace = Vec::new();
+        for line in info.lines() {
+            let Some((k, v)) = line.split_once(':') else { continue };
+            if KEYS.contains(&k) {
+                if let Some(n) = num(v) {
+                    snap.values.insert(k.to_string(), n);
+                }
+            } else if k.starts_with("db") && k[2..].chars().all(|c| c.is_ascii_digit()) {
+                let keys = v.split(',').find_map(|kv| kv.strip_prefix("keys=")).and_then(num).unwrap_or(0.0);
+                keyspace.push((k.to_string(), keys));
+            }
+        }
+        if breakdown {
+            snap.breakdown = Some(keyspace);
+        }
+
+        let me: i64 = redis::cmd("CLIENT").arg("ID").query_async(&mut c).await?;
+        let list: String = redis::cmd("CLIENT").arg("LIST").query_async(&mut c).await?;
+        let rows = list
+            .lines()
+            .filter_map(|line| {
+                let f: HashMap<&str, &str> = line.split(' ').filter_map(|kv| kv.split_once('=')).collect();
+                let id = f.get("id")?.to_string();
+                if id == me.to_string() {
+                    return None; // kết nối của chính màn Monitor
+                }
+                let cell = |k: &str| f.get(k).filter(|v| !v.is_empty()).map(|v| v.to_string());
+                Some(MonitorRow {
+                    id: Some(id.clone()),
+                    cells: vec![Some(id), cell("addr"), cell("name"), cell("age"), cell("idle"), cell("db"), cell("user"), cell("cmd")],
+                })
+            })
+            .take(200)
+            .collect();
+        snap.tables.push(MonitorTable {
+            title: "Clients".into(),
+            columns: ["id", "address", "name", "age (s)", "idle (s)", "db", "user", "last command"].map(String::from).to_vec(),
+            rows,
+            killable: true,
+        });
+
+        let slow: Value = redis::cmd("SLOWLOG").arg("GET").arg(50).query_async(&mut c).await?;
+        let mut slow_rows = Vec::new();
+        if let Value::Array(entries) = slow {
+            for e in entries {
+                let Value::Array(f) = e else { continue };
+                let at = f.get(1).map(text).and_then(|t| t.parse::<i64>().ok()).map(|t| t.to_string());
+                let us = f.get(2).map(text).and_then(|t| t.parse::<f64>().ok());
+                let cmd = match f.get(3) {
+                    Some(Value::Array(args)) => Some(args.iter().map(text).collect::<Vec<_>>().join(" ")),
+                    _ => None,
+                };
+                slow_rows.push(MonitorRow {
+                    id: None,
+                    cells: vec![
+                        f.first().map(text),
+                        at,
+                        us.map(|u| format!("{:.2}", u / 1000.0)),
+                        cmd,
+                        f.get(4).map(text),
+                    ],
+                });
+            }
+        }
+        snap.tables.push(MonitorTable {
+            title: "Slow log".into(),
+            columns: ["id", "time (unix)", "duration (ms)", "command", "client"].map(String::from).to_vec(),
+            rows: slow_rows,
+            killable: false,
+        });
+        Ok(snap)
+    }
+
+    /// CLIENT KILL ID <id>.
+    pub async fn kill(&self, target: &str) -> anyhow::Result<()> {
+        let id: u64 = target.parse().map_err(|_| anyhow::anyhow!("client id không hợp lệ"))?;
+        let mut c = self.conn(self.default_db).await?;
+        let _: Value = redis::cmd("CLIENT").arg("KILL").arg("ID").arg(id).query_async(&mut c).await?;
         Ok(())
     }
 

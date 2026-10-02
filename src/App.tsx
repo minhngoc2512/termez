@@ -48,6 +48,7 @@ import { SyncGuardDialog } from "./components/SyncGuardDialog";
 // Màn Databases (CodeMirror…) chỉ tải khi dùng tới — không làm chậm lúc mở app.
 const DatabasesPage = lazy(() => import("./components/db/DatabasesPage").then((m) => ({ default: m.DatabasesPage })));
 const DbView = lazy(() => import("./components/db/DbView").then((m) => ({ default: m.DbView })));
+const DbMonitorView = lazy(() => import("./components/db/DbMonitorView").then((m) => ({ default: m.DbMonitorView })));
 
 const components = {
   terminal: (
@@ -69,6 +70,11 @@ const components = {
   db: (props: IDockviewPanelProps<{ connId: string; kind: DbKind }>) => (
     <Suspense fallback={null}>
       <DbView panelId={props.api.id} connId={props.params.connId} kind={props.params.kind} />
+    </Suspense>
+  ),
+  dbmonitor: (props: IDockviewPanelProps<{ connId: string; kind: DbKind; name: string }>) => (
+    <Suspense fallback={null}>
+      <DbMonitorView connId={props.params.connId} kind={props.params.kind} name={props.params.name} />
     </Suspense>
   ),
 };
@@ -497,6 +503,19 @@ export default function App() {
     );
   }
 
+  // Monitor một kết nối database trong TASK riêng.
+  function openDbMonitor(c: DbConnection) {
+    openInNewTask(() =>
+      apiRef.current?.addPanel({
+        id: crypto.randomUUID(),
+        component: "dbmonitor",
+        tabComponent: "info",
+        title: `${c.name} · Monitor`,
+        params: { connId: c.id, kind: c.kind, name: c.name },
+      })
+    );
+  }
+
   function openSftp() {
     openInNewTask(() =>
       apiRef.current?.addPanel({
@@ -668,7 +687,7 @@ export default function App() {
                 {section === "storage" && <StoragePage />}
               {section === "databases" && (
                 <Suspense fallback={null}>
-                  <DatabasesPage onOpen={openDb} />
+                  <DatabasesPage onOpen={openDb} onMonitor={openDbMonitor} />
                 </Suspense>
               )}
               </div>

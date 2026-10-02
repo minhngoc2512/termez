@@ -239,6 +239,23 @@ export interface SyncGuard {
   details: string;
 }
 
+/** Một lần đo của màn Monitor database. */
+export interface DbMonitorRow {
+  id: string | null;
+  cells: (string | null)[];
+}
+export interface DbMonitorTable {
+  title: string;
+  columns: string[];
+  rows: DbMonitorRow[];
+  killable: boolean;
+}
+export interface DbMonitorSnapshot {
+  values: Record<string, number>;
+  breakdown: [string, number][] | null;
+  tables: DbMonitorTable[];
+}
+
 export type DbKind = "mysql" | "mariadb" | "postgres" | "clickhouse" | "redis";
 export type DbSslMode = "disable" | "prefer" | "require" | "verify";
 
@@ -465,6 +482,9 @@ export const api = {
   dbQuery: (sessionId: string, database: string | null, sql: string, limit: number) =>
     invoke<DbQueryOutput>("db_query", { sessionId, database, sql, limit }),
   dbCancel: (sessionId: string) => invoke<void>("db_cancel", { sessionId }),
+  dbMonitor: (sessionId: string, breakdown: boolean) =>
+    invoke<DbMonitorSnapshot>("db_monitor", { sessionId, breakdown }),
+  dbMonitorKill: (sessionId: string, target: string) => invoke<void>("db_monitor_kill", { sessionId, target }),
 
   getBuckets: () => invoke<StorageBucket[]>("get_buckets"),
   upsertBucket: (input: StorageBucketInput) => invoke<StorageBucket>("upsert_bucket", { input }),

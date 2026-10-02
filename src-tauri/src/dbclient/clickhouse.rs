@@ -8,7 +8,7 @@
 //! - Câu lệnh của editor chạy trong một HTTP session (giữ SET / bảng tạm); cây
 //!   schema và lệnh huỷ dùng request riêng (session bị khoá khi đang chạy).
 
-use super::{split_statements, Column, ConnectSpec, ResultSet, TreeNode};
+use super::{num, split_statements, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
 use futures_util::StreamExt;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -206,6 +206,65 @@ impl ChSession {
             self.send(self.request(&format!("KILL QUERY WHERE query_id = '{id}' ASYNC"), &[]))
                 .await?;
         }
+        Ok(())
+    }
+
+    /// Monitor: system.events (bộ đếm), system.metrics + asynchronous_metrics (tức
+    /// thời), system.processes (query đang chạy).
+    pub async fn monitor(&self, breakdown: bool) -> anyhow::Result<MonitorSnapshot> {
+        let mut snap = MonitorSnapshot::default();
+        let sql = "SELECT 'ev_' || event, toFloat64(value) FROM system.events WHERE event IN \
+                     ('Query','SelectQuery','InsertQuery','FailedQuery','SelectedRows','SelectedBytes','InsertedRows','InsertedBytes') \
+                   UNION ALL SELECT 'm_' || metric, toFloat64(value) FROM system.metrics WHERE metric IN \
+                     ('Query','Merge','TCPConnection','HTTPConnection','MemoryTracking') \
+                   UNION ALL SELECT 'a_' || metric, toFloat64(value) FROM system.asynchronous_metrics WHERE metric IN \
+                     ('Uptime','TotalPartsOfMergeTreeTables','MaxPartCountForPartition','OSMemoryTotal')";
+        for r in self.rows(sql, &[]).await? {
+            if let (Some(Some(k)), Some(Some(v))) = (r.first(), r.get(1)) {
+                if let Some(n) = num(v) {
+                    snap.values.insert(k.clone(), n);
+                }
+            }
+        }
+        let procs = self
+            .rows(
+                "SELECT query_id, user, toString(round(elapsed, 1)), formatReadableSize(memory_usage), \
+                   toString(read_rows), substring(query, 1, 500) \
+                 FROM system.processes WHERE query NOT ILIKE '%system.processes%' \
+                 ORDER BY elapsed DESC LIMIT 200",
+                &[],
+            )
+            .await?;
+        snap.tables.push(MonitorTable {
+            title: "Running queries".into(),
+            columns: ["query id", "user", "elapsed (s)", "memory", "rows read", "query"].map(String::from).to_vec(),
+            rows: procs
+                .into_iter()
+                .map(|cells| MonitorRow { id: cells.first().cloned().flatten(), cells })
+                .collect(),
+            killable: true,
+        });
+        if breakdown {
+            let sizes = self
+                .rows(
+                    "SELECT database, toFloat64(sum(bytes_on_disk)) FROM system.parts WHERE active \
+                     GROUP BY database ORDER BY 2 DESC LIMIT 20",
+                    &[],
+                )
+                .await?;
+            snap.breakdown = Some(
+                sizes
+                    .into_iter()
+                    .filter_map(|r| Some((r.first()?.clone()?, r.get(1)?.as_deref().and_then(num).unwrap_or(0.0))))
+                    .collect(),
+            );
+        }
+        Ok(snap)
+    }
+
+    /// KILL QUERY theo query_id (truyền dạng tham số, không ghép chuỗi).
+    pub async fn kill(&self, target: &str) -> anyhow::Result<()> {
+        self.rows("KILL QUERY WHERE query_id = {id:String} ASYNC", &[("param_id", target.to_string())]).await?;
         Ok(())
     }
 

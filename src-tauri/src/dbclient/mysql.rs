@@ -4,7 +4,7 @@
 //! `USE db`, biến phiên…), `meta` cho cây schema và `KILL QUERY` — để duyệt bảng
 //! hay huỷ không phải chờ một query dài đang chạy.
 
-use super::{quote_mysql, Column, ConnectSpec, ResultSet, TreeNode};
+use super::{num, quote_mysql, Column, ConnectSpec, MonitorRow, MonitorSnapshot, MonitorTable, ResultSet, TreeNode};
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, OptsBuilder, Row, SslOpts, Value};
 use tokio::sync::Mutex;
@@ -163,6 +163,70 @@ impl MySession {
         if let Some(c) = g.as_mut() {
             c.query_drop(format!("KILL QUERY {}", self.editor_id)).await?;
         }
+        Ok(())
+    }
+
+    /// Monitor: SHOW GLOBAL STATUS (bộ đếm + giá trị tức thời) và PROCESSLIST.
+    pub async fn monitor(&self, breakdown: bool) -> anyhow::Result<MonitorSnapshot> {
+        const KEYS: [&str; 16] = [
+            "Questions", "Com_select", "Com_insert", "Com_update", "Com_delete", "Threads_connected",
+            "Threads_running", "Slow_queries", "Bytes_received", "Bytes_sent",
+            "Innodb_buffer_pool_read_requests", "Innodb_buffer_pool_reads", "Uptime",
+            "Aborted_connects", "Connections", "Innodb_row_lock_waits",
+        ];
+        let mut g = self.meta().await?;
+        let conn = g.as_mut().expect("meta conn");
+        let mut snap = MonitorSnapshot::default();
+        for (k, v) in conn.query::<(String, String), _>("SHOW GLOBAL STATUS").await? {
+            if KEYS.contains(&k.as_str()) {
+                if let Some(n) = num(&v) {
+                    snap.values.insert(k, n);
+                }
+            }
+        }
+        if let Some((_, v)) = conn.query_first::<(String, String), _>("SHOW VARIABLES LIKE 'max_connections'").await? {
+            if let Some(n) = num(&v) {
+                snap.values.insert("max_connections".into(), n);
+            }
+        }
+        let rows: Vec<Row> = conn
+            .query(
+                "SELECT ID, USER, HOST, DB, COMMAND, TIME, STATE, LEFT(INFO, 500) \
+                 FROM information_schema.PROCESSLIST \
+                 WHERE COMMAND NOT IN ('Sleep', 'Daemon', 'Binlog Dump') AND ID <> CONNECTION_ID() \
+                 ORDER BY TIME DESC LIMIT 200",
+            )
+            .await?;
+        snap.tables.push(MonitorTable {
+            title: "Running queries".into(),
+            columns: ["id", "user", "host", "db", "command", "time (s)", "state", "query"].map(String::from).to_vec(),
+            rows: rows
+                .into_iter()
+                .map(|r| {
+                    let cells = row_strings(r);
+                    MonitorRow { id: cells.first().cloned().flatten(), cells }
+                })
+                .collect(),
+            killable: true,
+        });
+        if breakdown {
+            let sizes: Vec<(String, Option<String>)> = conn
+                .query(
+                    "SELECT TABLE_SCHEMA, CAST(SUM(DATA_LENGTH + INDEX_LENGTH) AS CHAR) FROM information_schema.TABLES \
+                     WHERE TABLE_SCHEMA NOT IN ('information_schema','performance_schema','sys','mysql') \
+                     GROUP BY TABLE_SCHEMA ORDER BY SUM(DATA_LENGTH + INDEX_LENGTH) DESC LIMIT 20",
+                )
+                .await?;
+            snap.breakdown = Some(sizes.into_iter().map(|(db, b)| (db, b.as_deref().and_then(num).unwrap_or(0.0))).collect());
+        }
+        Ok(snap)
+    }
+
+    /// KILL QUERY <id> (id là số thread trong PROCESSLIST).
+    pub async fn kill(&self, target: &str) -> anyhow::Result<()> {
+        let id: u64 = target.parse().map_err(|_| anyhow::anyhow!("id không hợp lệ"))?;
+        let mut g = self.meta().await?;
+        g.as_mut().expect("meta conn").query_drop(format!("KILL QUERY {id}")).await?;
         Ok(())
     }
 

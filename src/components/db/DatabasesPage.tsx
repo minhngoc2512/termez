@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Database, Plus, Search, Pencil, Trash2, Cable, Lock, FolderPlus, Folder, FolderOpen, ChevronRight,
+  Database, Plus, Search, Pencil, Trash2, Cable, Lock, FolderPlus, Folder, FolderOpen, ChevronRight, Activity,
 } from "lucide-react";
 import { api, DbConnection, DbGroup } from "../../lib/ipc";
 import { confirmDialog, alertDialog, promptDialog } from "../../lib/dialogs";
@@ -23,7 +23,7 @@ function loadCollapsed(): Record<string, boolean> {
 }
 
 /** Trang Databases: kết nối đã lưu, xếp theo nhóm; click để mở trong một task mới. */
-export function DatabasesPage({ onOpen }: { onOpen: (c: DbConnection) => void }) {
+export function DatabasesPage({ onOpen, onMonitor }: { onOpen: (c: DbConnection) => void; onMonitor: (c: DbConnection) => void }) {
   const hosts = useStore((s) => s.hosts);
   const [conns, setConns] = useState<DbConnection[]>([]);
   const [groups, setGroups] = useState<DbGroup[]>([]);
@@ -188,6 +188,15 @@ export function DatabasesPage({ onOpen }: { onOpen: (c: DbConnection) => void })
           )}
         </div>
         <div className="absolute right-2 top-2 hidden gap-0.5 group-hover:flex">
+          <IconBtn
+            title="Monitor (live metrics, running queries)"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMonitor(c);
+            }}
+          >
+            <Activity className="size-3.5" />
+          </IconBtn>
           <IconBtn
             title="Edit"
             onClick={(e) => {
