@@ -5,7 +5,7 @@ import logoUrl from "./assets/logo.svg"; // Vite sinh đường dẫn đúng v�
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.4.0";
+const VERSION = "v0.4.1";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
