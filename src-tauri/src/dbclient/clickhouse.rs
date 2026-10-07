@@ -4,6 +4,10 @@
 //!   JSON), đọc dạng stream; giới hạn dòng đặt luôn phía server
 //!   (`max_result_rows` + `result_overflow_mode=break`). Server bật query cache thì
 //!   ClickHouse cấm `break` (lỗi 731) → bỏ hai thiết lập đó, chỉ cắt phía client.
+//! - Câu lệnh nội bộ (kiểm tra kết nối, cây schema, Monitor…) luôn tắt query cache:
+//!   profile bật cache sẽ từ chối câu có hàm không tất định như version()/uptime()
+//!   (lỗi 704), và số liệu Monitor phải là số mới. Câu của người dùng giữ nguyên
+//!   cache; chỉ khi gặp lỗi 704 mới chạy lại một lần với cache tắt.
 //! - HTTP chỉ chạy một câu mỗi request → script được tách theo `;`.
 //! - Câu lệnh của editor chạy trong một HTTP session (giữ SET / bảng tạm); cây
 //!   schema và lệnh huỷ dùng request riêng (session bị khoá khi đang chạy).
@@ -25,6 +29,14 @@ pub struct ChSession {
     running: std::sync::Mutex<Option<String>>,
     /// Còn dùng giới hạn dòng phía server không (tắt khi server bật query cache).
     server_limit: std::sync::atomic::AtomicBool,
+    /// Được phép gửi `use_query_cache=0` không (user không được đổi setting → thôi gửi).
+    cache_off: std::sync::atomic::AtomicBool,
+}
+
+/// Server từ chối đổi setting (user readonly=1 hoặc có constraint).
+fn is_setting_denied(e: &anyhow::Error) -> bool {
+    let m = e.to_string();
+    m.contains("Cannot modify") || m.contains("SETTING_CONSTRAINT_VIOLATION") || m.contains("READONLY")
 }
 
 fn build_client(spec: &ConnectSpec, https: bool) -> anyhow::Result<(reqwest::Client, String)> {
@@ -65,6 +77,7 @@ impl ChSession {
                 session_id: uuid::Uuid::new_v4().to_string(),
                 running: std::sync::Mutex::new(None),
                 server_limit: std::sync::atomic::AtomicBool::new(true),
+                cache_off: std::sync::atomic::AtomicBool::new(true),
             };
             match s.scalar("SELECT version()").await {
                 Ok(v) => return Ok((s, v)),
@@ -80,13 +93,17 @@ impl ChSession {
         self.default_db.clone()
     }
 
-    fn request(&self, sql: &str, params: &[(&str, String)]) -> reqwest::RequestBuilder {
+    /// `no_cache` = tắt query cache cho request này (nếu user được phép đổi setting).
+    fn request(&self, sql: &str, params: &[(&str, String)], no_cache: bool) -> reqwest::RequestBuilder {
         let mut q: Vec<(&str, String)> = vec![
             ("default_format", "JSONCompactEachRowWithNamesAndTypes".into()),
             ("output_format_json_quote_64bit_integers", "0".into()),
         ];
         if self.read_only {
             q.push(("readonly", "2".into()));
+        }
+        if no_cache && self.cache_off.load(std::sync::atomic::Ordering::Relaxed) {
+            q.push(("use_query_cache", "0".into()));
         }
         q.extend(params.iter().cloned());
         self.http
@@ -106,9 +123,17 @@ impl ChSession {
         Ok(resp)
     }
 
-    /// Câu lệnh nhỏ (metadata): đọc toàn bộ thành các dòng giá trị.
+    /// Câu lệnh nhỏ (metadata, Monitor…): tắt query cache, đọc toàn bộ thành các dòng.
     async fn rows(&self, sql: &str, params: &[(&str, String)]) -> anyhow::Result<Vec<Vec<Option<String>>>> {
-        let resp = self.send(self.request(sql, params)).await?;
+        use std::sync::atomic::Ordering;
+        let resp = match self.send(self.request(sql, params, true)).await {
+            // User không được đổi setting (readonly=1 / constraint) → thôi gửi use_query_cache.
+            Err(e) if self.cache_off.load(Ordering::Relaxed) && is_setting_denied(&e) => {
+                self.cache_off.store(false, Ordering::Relaxed);
+                self.send(self.request(sql, params, false)).await?
+            }
+            r => r?,
+        };
         let body = resp.text().await?;
         Ok(parse_body(&body, usize::MAX)?.rows)
     }
@@ -133,23 +158,27 @@ impl ChSession {
         let mut sets = Vec::new();
         use std::sync::atomic::Ordering;
         for stmt in split_statements(sql) {
-            let mut res = self.run_tracked(&stmt, db.clone(), limit).await;
+            let mut res = self.run_tracked(&stmt, db.clone(), limit, false).await;
             if self.server_limit.load(Ordering::Relaxed)
                 && matches!(&res, Err(e) if e.to_string().contains("QUERY_CACHE_USED_WITH_NON_THROW_OVERFLOW_MODE"))
             {
                 // Profile của user bật use_query_cache → không đặt giới hạn phía server nữa.
                 self.server_limit.store(false, Ordering::Relaxed);
-                res = self.run_tracked(&stmt, db.clone(), limit).await;
+                res = self.run_tracked(&stmt, db.clone(), limit, false).await;
+            }
+            if matches!(&res, Err(e) if e.to_string().contains("QUERY_CACHE_USED_WITH_NONDETERMINISTIC_FUNCTIONS")) {
+                // Câu có now()/rand()… mà profile bật cache → chạy lại không dùng cache.
+                res = self.run_tracked(&stmt, db.clone(), limit, true).await;
             }
             sets.push(res?);
         }
         Ok((sets, db))
     }
 
-    async fn run_tracked(&self, stmt: &str, db: Option<String>, limit: usize) -> anyhow::Result<ResultSet> {
+    async fn run_tracked(&self, stmt: &str, db: Option<String>, limit: usize, no_cache: bool) -> anyhow::Result<ResultSet> {
         let query_id = uuid::Uuid::new_v4().to_string();
         *self.running.lock().unwrap() = Some(query_id.clone());
-        let res = self.run_one(stmt, db, limit, &query_id).await;
+        let res = self.run_one(stmt, db, limit, &query_id, no_cache).await;
         *self.running.lock().unwrap() = None;
         res
     }
@@ -160,6 +189,7 @@ impl ChSession {
         db: Option<String>,
         limit: usize,
         query_id: &str,
+        no_cache: bool,
     ) -> anyhow::Result<ResultSet> {
         let mut params = vec![
             ("session_id", self.session_id.clone()),
@@ -173,7 +203,7 @@ impl ChSession {
         if let Some(db) = db {
             params.push(("database", db));
         }
-        let resp = self.send(self.request(stmt, &params)).await?;
+        let resp = self.send(self.request(stmt, &params, no_cache)).await?;
         let written = resp
             .headers()
             .get("X-ClickHouse-Summary")
@@ -203,8 +233,7 @@ impl ChSession {
     pub async fn cancel(&self) -> anyhow::Result<()> {
         let id = self.running.lock().unwrap().clone();
         if let Some(id) = id {
-            self.send(self.request(&format!("KILL QUERY WHERE query_id = '{id}' ASYNC"), &[]))
-                .await?;
+            self.rows(&format!("KILL QUERY WHERE query_id = '{id}' ASYNC"), &[]).await?;
         }
         Ok(())
     }

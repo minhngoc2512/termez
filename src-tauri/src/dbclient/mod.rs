@@ -699,6 +699,40 @@ mod tests {
         .await;
     }
 
+    /// Profile bật query cache (use_query_cache=1): câu nội bộ có version()/uptime()
+    /// không được lỗi 704; câu của người dùng có now() chạy lại không dùng cache.
+    #[tokio::test]
+    #[ignore]
+    async fn clickhouse_query_cache_profile() {
+        let Some(admin) = spec("TERMEZ_TEST_CH", "clickhouse", "default", false) else { return };
+        let m = DbManager::new();
+        let aid = m.open(admin.clone(), None).await.unwrap().session_id;
+        for q in [
+            "CREATE SETTINGS PROFILE IF NOT EXISTS termez_qc SETTINGS use_query_cache = 1",
+            "CREATE USER IF NOT EXISTS termez_qc IDENTIFIED BY 'qcpass' SETTINGS PROFILE 'termez_qc'",
+            "GRANT SELECT, SHOW, KILL QUERY ON *.* TO termez_qc",
+        ] {
+            if let Err(e) = m.query(&aid, None, q, 10).await {
+                eprintln!("bỏ qua: server không cho quản lý user bằng SQL ({e})");
+                return;
+            }
+        }
+        let qc = ConnectSpec { username: "termez_qc".into(), password: "qcpass".into(), read_only: true, ..admin };
+        let info = m.open(qc.clone(), None).await.expect("kết nối (SELECT version()) không được lỗi 704");
+        let id = info.session_id;
+        assert!(!m.tree(&id, &[]).await.unwrap().is_empty());
+        let snap = m.monitor(&id, true).await.expect("monitor");
+        assert!(snap.values.contains_key("a_Uptime"));
+        let out = m.query(&id, None, "SELECT now() AS t", 10).await.expect("now() trong editor");
+        assert_eq!(out.results[0].rows.len(), 1);
+        let out = m.query(&id, None, "SELECT number FROM numbers(1000)", 10).await.expect("giới hạn dòng");
+        assert_eq!(out.results[0].rows.len(), 10);
+        assert!(out.results[0].truncated);
+        assert!(list_databases(&qc).await.is_ok());
+        let _ = m.query(&aid, None, "DROP USER IF EXISTS termez_qc", 10).await;
+        let _ = m.query(&aid, None, "DROP SETTINGS PROFILE IF EXISTS termez_qc", 10).await;
+    }
+
     #[tokio::test]
     #[ignore]
     async fn redis_roundtrip() {
