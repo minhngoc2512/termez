@@ -285,7 +285,7 @@ export function DbConnectionForm({ open, conn, groups, defaultGroupId, onGroupsC
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-x-hidden overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{conn ? "Edit database connection" : "New database connection"}</DialogTitle>
         </DialogHeader>

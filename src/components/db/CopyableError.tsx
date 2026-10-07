@@ -20,7 +20,7 @@ export function CopyableError({
     <div className={cn("group relative", className)}>
       <pre
         className={cn(
-          "selectable h-full overflow-auto whitespace-pre-wrap break-words pr-16 text-xs",
+          "selectable h-full overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] pr-16 text-xs",
           mono ? "font-mono" : "font-sans",
           tone === "error" ? "text-destructive" : "text-primary"
         )}
