@@ -25,6 +25,8 @@ export interface DbPane {
   treeError: string | null;
   /** Kết nối có chọn database: cây chỉ hiện database đó, trừ khi bật "Show all". */
   showAll: boolean;
+  /** Ô lọc tên trong cây schema. */
+  filter: string;
 }
 
 const panes = new Map<string, DbPane>();
@@ -76,6 +78,7 @@ export function ensure(panelId: string, connId: string, kind: DbKind) {
     expanded: {},
     treeError: null,
     showAll: false,
+    filter: "",
   });
   queueMicrotask(() => void connect(panelId)); // không set state giữa lúc render
 }
@@ -121,7 +124,7 @@ export function scopedDatabase(p: DbPane): string | null {
   return p.showAll ? null : (p.session?.configured_database ?? null);
 }
 
-export function update(panelId: string, patch: Partial<Pick<DbPane, "sql" | "database" | "limit" | "activeResult" | "showAll">>) {
+export function update(panelId: string, patch: Partial<Pick<DbPane, "sql" | "database" | "limit" | "activeResult" | "showAll" | "filter">>) {
   set(panelId, patch);
 }
 
