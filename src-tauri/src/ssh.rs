@@ -2,11 +2,12 @@ use crate::conn::{connect_authenticated, AuthMethod, JumpConfig, ProxyConfig};
 use russh::ChannelMsg;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{mpsc, Mutex};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, Duration, MissedTickBehavior};
 
 /// Gom output terminal rồi mới đẩy lên frontend: chờ tối đa OUT_FLUSH_DELAY kể từ
 /// byte đầu tiên, hoặc đẩy ngay khi đủ OUT_FLUSH_BYTES. Vim cuộn trang sinh ra rất
@@ -94,9 +95,29 @@ impl SshManager {
         let sid = session_id.clone();
         tokio::spawn(async move {
             // Giữ kết nối (handle + jump handles) sống suốt vòng đời phiên.
-            let conn = conn;
-            // Đo độ trễ (SSH keepalive ping) 2s/lần → emit "ssh:latency".
-            let mut ping_tick = interval(Duration::from_secs(2));
+            let conn = Arc::new(conn);
+            // Đo độ trễ (SSH keepalive ping) 2s/lần → emit "ssh:latency". Chạy ở task riêng:
+            // nếu chờ ping ngay trong vòng lặp đọc, lúc output dồn dập bộ đệm channel đầy
+            // khiến session của russh không xử lý được phản hồi ping → cả phiên bị tắc.
+            let pinger = {
+                let (conn, app, sid) = (conn.clone(), app.clone(), sid.clone());
+                tokio::spawn(async move {
+                    let mut ping_tick = interval(Duration::from_secs(2));
+                    ping_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                    loop {
+                        ping_tick.tick().await;
+                        let t = Instant::now();
+                        // Timeout 5s để không kẹt nếu kết nối nửa-chết.
+                        if let Ok(Ok(())) =
+                            tokio::time::timeout(Duration::from_secs(5), conn.handle.send_ping()).await
+                        {
+                            let ms = t.elapsed().as_millis().min(u32::MAX as u128) as u32;
+                            let _ = app.emit("ssh:latency", LatencyPayload { id: sid.clone(), ms });
+                        }
+                    }
+                })
+                .abort_handle()
+            };
             // "sạch" = server đóng kênh graceful (Eof/Close, hoặc có exit-status/signal)
             // hoặc ta chủ động đóng. Chỉ `None` (kênh biến mất mà KHÔNG có Close) mới là
             // đứt ngang (mất mạng) → frontend sẽ thử kết nối lại.
@@ -110,16 +131,6 @@ impl SshManager {
                     _ = &mut flush_timer, if flush_armed => {
                         flush_armed = false;
                         flush_out(&on_data, &mut out);
-                    }
-                    _ = ping_tick.tick() => {
-                        // Timeout 5s để không kẹt vòng lặp nếu kết nối nửa-chết.
-                        let t = Instant::now();
-                        if let Ok(Ok(())) =
-                            tokio::time::timeout(Duration::from_secs(5), conn.handle.send_ping()).await
-                        {
-                            let ms = t.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                            let _ = app.emit("ssh:latency", LatencyPayload { id: sid.clone(), ms });
-                        }
                     }
                     msg = channel.wait() => {
                         match msg {
@@ -163,6 +174,7 @@ impl SshManager {
                     }
                 }
             }
+            pinger.abort();
             flush_out(&on_data, &mut out); // đẩy nốt phần còn lại trước khi báo đóng
             let _ = app.emit("ssh:closed", ClosedPayload { id: sid, clean });
         });
@@ -199,4 +211,73 @@ fn flush_out(ch: &Channel<InvokeResponseBody>, out: &mut Vec<u8>) {
         return;
     }
     let _ = ch.send(InvokeResponseBody::Raw(std::mem::take(out)));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Host giả: đếm byte output, mô phỏng terminal xử lý chậm bằng cách ngủ mỗi gói.
+    struct Counter {
+        bytes: AtomicU64,
+        delay: std::time::Duration,
+    }
+    impl tauri::Host for Counter {
+        fn emit(&self, _: &str, _: String) {}
+        fn channel(&self, _: u32, _: u64, body: InvokeResponseBody) {
+            if let InvokeResponseBody::Raw(b) = body {
+                self.bytes.fetch_add(b.len() as u64, Ordering::Relaxed);
+            }
+            std::thread::sleep(self.delay);
+        }
+        fn restart(&self) {}
+    }
+
+    /// Output lớn không được làm tắc phiên, kể cả khi bên nhận chậm hơn tốc độ dữ liệu đến
+    /// (phiên từng tắc hẳn ở lần ping đầu tiên): `TERMEZ_TEST_SSH=host:port:user:password`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore]
+    async fn large_output_does_not_stall() {
+        let Ok(v) = std::env::var("TERMEZ_TEST_SSH") else { return };
+        let p: Vec<&str> = v.splitn(4, ':').collect();
+        for delay_ms in [0u64, 5, 60] {
+            let c = Arc::new(Counter { bytes: AtomicU64::new(0), delay: Duration::from_millis(delay_ms) });
+            let app = tauri::AppHandle::new(c.clone());
+            let ch: Channel<InvokeResponseBody> = Channel::from_js(1, &app);
+            let m = SshManager::new();
+            let t0 = Instant::now();
+            let id = m
+                .connect(
+                    app.clone(),
+                    ch,
+                    p[0].into(),
+                    p[1].parse().unwrap(),
+                    p[2].into(),
+                    AuthMethod::Password(p[3].into()),
+                    80,
+                    24,
+                    Some("seq 1 400000".into()),
+                    false,
+                    None,
+                    None,
+                    None,
+                    false,
+                    None,
+                )
+                .await
+                .expect("connect");
+            let (mut last, mut idle) = (0, 0);
+            // seq 1..400000 ≈ 2,7 MB (kèm \r).
+            while c.bytes.load(Ordering::Relaxed) < 2_700_000 && idle < 12 {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let now = c.bytes.load(Ordering::Relaxed);
+                eprintln!("delay={delay_ms}ms t={:?} bytes={now}", t0.elapsed());
+                idle = if now == last { idle + 1 } else { 0 };
+                last = now;
+            }
+            let _ = m.disconnect(&id).await;
+            assert!(c.bytes.load(Ordering::Relaxed) >= 2_700_000, "phiên bị tắc ở {last} byte (delay {delay_ms} ms)");
+        }
+    }
 }
