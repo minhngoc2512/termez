@@ -1,15 +1,15 @@
 Package: termez
-Version: 0.4.1
+Version: 0.4.2
 Architecture: amd64
 Maintainer: Termez <termez@users.noreply.github.com>
-Installed-Size: 312085
+Installed-Size: 312081
 Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libdbus-1-3
 Recommends: libappindicator3-1
-Filename: ./Termez_0.4.1_amd64.deb
-Size: 106523844
-MD5sum: 8d66746bfbb29b5d686c6e17310094dc
-SHA1: a8a5c493e37cce4acd4911367beb7456cf105261
-SHA256: 450a30770efabd026423a4c0251ac3c563381929fff0a25927ea001619d7f8a0
+Filename: ./Termez_0.4.2_amd64.deb
+Size: 106240652
+MD5sum: b9277665a0b424ed49bbf72090a1c42d
+SHA1: ab99a7613e7aeb7f1dbebafccac4d1ce331c71ef
+SHA256: 18c456fc957732f6c834322a001fff3228ad13eced9b305864da7f0980f89571
 Section: default
 Priority: optional
 Homepage: https://minhngoc2512.github.io/termez/
