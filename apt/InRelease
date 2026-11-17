@@ -4,37 +4,37 @@ Hash: SHA512
 Architectures: amd64
 Codename: stable
 Components: main
-Date: Tue, 17 Nov 2026 08:19:21 +0000
+Date: Tue, 17 Nov 2026 08:35:53 +0000
 Label: Termez
 Origin: Termez
 Suite: stable
 MD5Sum:
- d93f80065261f81b315cece38ad57337              709 Packages
- 2a4e6257fd78f4bb63647e42c9fc9e6d              487 Packages.gz
- 04f6e97bfe7c9c85a0ab6033df7a80a2              136 Release
+ e7708a4e814167987d49c968dcec4413              709 Packages
+ 5d2dfaea6aa28857418da8e5eda89c6e              488 Packages.gz
+ e2065a9e97528297fbba0457bebd798c              136 Release
 SHA1:
- c8dd43155d017c8842bf6b89e26f9936cdb48f78              709 Packages
- 28c418621f2e51e70cf6b07220804852871806bb              487 Packages.gz
- c3fa32d4842165db682e5f6a930808c54ebce42d              136 Release
+ ebf584ef9e1e6a58dbfc4f0ae4ca859bcfcdbc5d              709 Packages
+ 10c541ef85f6090a7397bf78934b1e3e1eca3b22              488 Packages.gz
+ ecee17fb4761f2faabeccd8647e9dc51313dd49d              136 Release
 SHA256:
- 8bbb0f7a3009d86d4eff6c8bd470d3f341897549e8cdfda55b3b08d8a30df683              709 Packages
- 5169211ed1e906c668d7612290a75a1d68c1fc2109015ec0a353a7914812d783              487 Packages.gz
- 85c66a291b7599fe3cda38c99a275d71508ad34063357066d7927d55bff53043              136 Release
+ 6177c4e455faeb89c411fe2a007df77de7e888137314ac720439dbea49b275e1              709 Packages
+ a335b7474d8d57adda3dbab9b892b0dab4eb09a31f15156a691c5b159e34bd2a              488 Packages.gz
+ 093980e0a19c56e7a0a321fb752f905805b0aaf9b1226111bbc40aac754b7850              136 Release
 SHA512:
- 6cec2e791737545b04f57d449ae520f9aa547b278f61050836f080b1f1a29946b3b4e6851d34988324d20db8eb1c274c8fa5d140c6a3bfaa4b23e878a5eab5b3              709 Packages
- bc1afe079a6af81dfe78564db03e83f986a5c951c5200eb686cc3c0ea5e6a750b0dc40ecc0f25d0f68f1c023626ff20bbd219ef0a4b8000ed79643189aff00ea              487 Packages.gz
- c42f6716b973945f218a597032d90d29360497165205c7766387a8624f0d2d17671b99ef9c65ef4af35ed5441ab5531527d8caf1a3b473c96212ce88322d43b6              136 Release
+ cdf0084fec830f31a863c7e202ba3e8282a0116e6369abccd63883dfb21bc522839c7806d427ba0442a9bc36f43a44bb1f37730b3d514942052ad853a730545a              709 Packages
+ 7cdfac9267075a666c6624b07692640c1741212c935ab14254a6091dc31b996e7d6479f8e100e15772f6e605f73bfeaa66f597fe3244d012a8769409121f9696              488 Packages.gz
+ a11e997806a5637c41e30e436e87c653b944ee8cae2dbbeac111f62a06a3992d352374f7173fdc6451b68fc152d0970a367e1c49ce5186202f4b69399089e614              136 Release
 -----BEGIN PGP SIGNATURE-----
 
-iQGzBAEBCgAdFiEEGDIYG26/WxKE598WjGvodMhGSksFAmr8Dg0ACgkQjGvodMhG
-SkvFZAv/SRk1EhIINFBTyu2AxUaWEMFdDRr0IKgVXWubqyVnbZvc5diYhFhZ9pAn
-XHi02aiS+GnvAL0siWdDDtqQbwDYpZoUup0mk8d+XvzmrNnXhdGkQBu7PXPHvSI3
-8OSnvDorJDdKrYe5FIShhs6KOamp/DwRo8WmYdcJhpPdjOljfnvMrkqISJXsS/OH
-bqaOOLV2pTrcrnE8rWYfFvjMnHw7fJs3mR+U2rAKbNDRgsoazVRxPFpfx8oOVlMR
-bDC44kdVwgtll+qFUoqoqaHiIek1yIMwA4xyMhS4jWDq27soNQGaE3HkBjosh2aV
-lGJE9Qp6stvZwzIRCUPhWRRTnTLmDUM+sgRAk1qUZS6ns9V0PVWHNwUd1Ahumgou
-SP95ir5t8yxiNJ/JokfuBNSAGRQWjs4e1Y58iEaECAWyRah+tp/Fh7vEfI+E1J2I
-ud6SrXeudbf+7Y5cZ3iD7NyQ65RF6VPdmpmWm4VqK9zTHfBZUIFJPMt5pR+pUpCF
-FsAASn+E
-=scoE
+iQGzBAEBCgAdFiEEGDIYG26/WxKE598WjGvodMhGSksFAmr8Ee4ACgkQjGvodMhG
+SkuWeQwAhPG+KTHOiYv92a+Yrd4KhrgYj0UGim7GVmOPFRY9ihBssyCDayK28Vns
+TVzb+AY49Q7uFBYPrzK8Yc4u70Ks/XwRvpaHdDIrBSUs61jrmF/V6draTERZfdmJ
+tsWZsDVRHa/DYiQh3KnZdyB84ft8x4+mFiMUHfFnE6e2qF6HT15o9nCEYb2Km/l2
+OiqzeBZ+3brPlGyynlOElU6Cy8wcFiNl1E8S3tvZyIA81qyvuuc3zgUevNP42qj/
+DxJYgBTGqDOZMEXgLAWkVe2IfG+0TU+zOY3IdveoYM/FIChzaGKX8U0pBXG6tIG5
+ubPr1jR9b9icRnMdkg3i1MSb/bBPIETS9lvkniSs8aiOL0y0q51aIiAd6PzBaFge
+nr5V7mHxfRUNGCSMaEQjaJUj7ISEZEIc0kuQarsQS5Tz5om6MvJrzzfVEjDQKXFH
+oVd6r+xXnwKBm6iSMo1MO6gbIQUPtrdkFVhxBbDS2tHqArCwoxyGs5Nh06wUBmVt
+ArcVWOP6
+=N6vX
 -----END PGP SIGNATURE-----
