@@ -1423,8 +1423,9 @@ pub async fn s3_list(
     state: State<'_, AppState>,
     bucket_id: String,
     prefix: String,
+    token: Option<String>,
 ) -> R<crate::s3::Listing> {
-    s3_for(&state.db, &bucket_id).await?.list(&prefix, None).await.map_err(e)
+    s3_for(&state.db, &bucket_id).await?.list(&prefix, token.as_deref()).await.map_err(e)
 }
 
 #[tauri::command]
@@ -2942,8 +2943,17 @@ mod sync_guard_tests {
             let mut g = FILES.lock().unwrap();
             let files = g.get_or_insert_with(HashMap::new);
             match method {
+                // Như GitHub thật: Contents API có thể trả nội dung đã bị đổi bảng mã (vault nhị
+                // phân bị đoán nhầm là UTF-16), chỉ Blob API mới đúng từng byte.
+                "GET" if key.contains("/git/blobs/") => {
+                    let want = key.rsplit('/').next().unwrap_or("");
+                    match files.values().find(|f| f.1 == want) {
+                        Some((c, sha)) => (200, serde_json::json!({ "content": c, "sha": sha, "encoding": "base64" })),
+                        None => (404, serde_json::json!({})),
+                    }
+                }
                 "GET" => match files.get(&key) {
-                    Some((c, sha)) => (200, serde_json::json!({ "content": c, "sha": sha })),
+                    Some((_, sha)) => (200, serde_json::json!({ "content": "bWFuZ2xlZA==", "sha": sha })),
                     None => (404, serde_json::json!({})),
                 },
                 "PUT" => {

@@ -130,7 +130,7 @@ export function HostsPage({ onOpen, onAdd, onEdit, onMonitor }: Props) {
                   </div>
                 </div>
                 <div className="absolute right-2 top-2 hidden gap-0.5 group-hover:flex">
-                  <IconBtn title="Monitor (CPU/RAM/disk/net)" onClick={(e) => { e.stopPropagation(); onMonitor(h); }}>
+                  <IconBtn title="Monitor (CPU/RAM/disk/net/GPU)" onClick={(e) => { e.stopPropagation(); onMonitor(h); }}>
                     <Activity className="size-3.5" />
                   </IconBtn>
                   <IconBtn title="Edit" onClick={(e) => { e.stopPropagation(); onEdit(h); }}>

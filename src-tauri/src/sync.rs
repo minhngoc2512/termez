@@ -425,9 +425,25 @@ pub async fn get_vault(
         anyhow::bail!("GitHub GET lỗi {}: {}", s, resp.text().await.unwrap_or_default());
     }
     let j: serde_json::Value = resp.json().await?;
-    let content = j["content"].as_str().unwrap_or("").replace(['\n', '\r'], "");
     let sha = j["sha"].as_str().unwrap_or("").to_string();
+    let content = get_blob(pat, owner, repo, &sha).await?;
     Ok(Some((content, sha)))
+}
+
+/// Đọc nội dung vault theo blob sha (base64).
+///
+/// KHÔNG lấy `content` của Contents API: GitHub đoán bảng mã của file rồi chuyển sang UTF-8, nên
+/// bản mã ngẫu nhiên bị đoán nhầm là UTF-16 sẽ trả về sai byte và không giải mã được. Contents
+/// API cũng bỏ trống `content` với file trên 1 MB. Blob API luôn trả đúng từng byte.
+async fn get_blob(pat: &str, owner: &str, repo: &str, sha: &str) -> anyhow::Result<String> {
+    let url = format!("{}/repos/{owner}/{repo}/git/blobs/{sha}", api_base());
+    let resp = gh(&url, pat).send().await?;
+    if !resp.status().is_success() {
+        let s = resp.status();
+        anyhow::bail!("GitHub GET lỗi {}: {}", s, resp.text().await.unwrap_or_default());
+    }
+    let j: serde_json::Value = resp.json().await?;
+    Ok(j["content"].as_str().unwrap_or("").replace(['\n', '\r'], ""))
 }
 
 /// Đẩy vault.enc (tạo hoặc cập nhật). `content_b64` là base64 của bytes file.
@@ -509,7 +525,7 @@ pub async fn get_vault_at(pat: &str, owner: &str, repo: &str, commit: &str) -> a
         anyhow::bail!("GitHub GET lỗi {}: {}", s, resp.text().await.unwrap_or_default());
     }
     let j: serde_json::Value = resp.json().await?;
-    Ok(j["content"].as_str().unwrap_or("").replace(['\n', '\r'], ""))
+    get_blob(pat, owner, repo, j["sha"].as_str().unwrap_or("")).await
 }
 
 #[cfg(test)]

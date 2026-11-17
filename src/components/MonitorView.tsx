@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Cpu, MemoryStick, HardDrive, ArrowDown, ArrowUp, Activity, Loader2, TriangleAlert } from "lucide-react";
+import { Cpu, Gpu as GpuIcon, MemoryStick, HardDrive, ArrowDown, ArrowUp, Activity, Loader2, TriangleAlert } from "lucide-react";
 import { api, Metrics } from "../lib/ipc";
 import { cn } from "@/lib/utils";
+import { GpuHistory, GpuSummary, GpuTab, pushGpuHistory } from "./GpuMonitor";
 
 const KEEP = 60; // số mẫu giữ lại (~2 phút ở 2s/mẫu)
 
@@ -25,7 +26,16 @@ export function MonitorView({ hostId }: { hostId: string }) {
   const mem = useRef<number[]>([]);
   const rx = useRef<number[]>([]);
   const tx = useRef<number[]>([]);
+  const gpuHist = useRef<GpuHistory>(new Map());
   const [, tick] = useState(0);
+  const tabKey = `termez.monitor-tab:${hostId}`;
+  const [tab, setTabState] = useState<"overview" | "gpu">(() => {
+    try { return localStorage.getItem(tabKey) === "gpu" ? "gpu" : "overview"; } catch { return "overview"; }
+  });
+  const setTab = (t: "overview" | "gpu") => {
+    setTabState(t);
+    try { localStorage.setItem(tabKey, t); } catch { /* bỏ qua */ }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -46,6 +56,7 @@ export function MonitorView({ hostId }: { hostId: string }) {
       push(mem, met.mem_total_kb > 0 ? (met.mem_used_kb / met.mem_total_kb) * 100 : 0);
       push(rx, met.net_rx_bps);
       push(tx, met.net_tx_bps);
+      pushGpuHistory(gpuHist.current, met.gpus ?? []);
       tick((t) => t + 1);
     }).then((f) => { if (disposed) f(); else un = f; });
 
@@ -73,54 +84,82 @@ export function MonitorView({ hostId }: { hostId: string }) {
   }
 
   const netMax = Math.max(1, ...rx.current, ...tx.current);
+  const gpus = m.gpus ?? [];
+  const hasGpu = gpus.length > 0;
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-4">
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card title="CPU" icon={Cpu} value={`${m.cpu_percent.toFixed(0)}%`} sub={`load ${m.load1.toFixed(2)}`}>
-          <Chart data={cpu.current} max={100} color="#22c55e" />
-        </Card>
-        <Card title="Memory" icon={MemoryStick} value={`${((m.mem_used_kb / (m.mem_total_kb || 1)) * 100).toFixed(0)}%`}
-          sub={`${fmtBytes(m.mem_used_kb * 1024)} / ${fmtBytes(m.mem_total_kb * 1024)}`}>
-          <Chart data={mem.current} max={100} color="#f59e0b" />
-        </Card>
-        <Card title="Network" icon={Activity}
-          value={<span className="flex items-center gap-3 text-base">
-            <span className="flex items-center gap-1 text-cyan-400"><ArrowDown className="size-4" />{fmtBytes(m.net_rx_bps)}/s</span>
-            <span className="flex items-center gap-1 text-fuchsia-400"><ArrowUp className="size-4" />{fmtBytes(m.net_tx_bps)}/s</span>
-          </span>}
-          sub={`uptime ${fmtUptime(m.uptime_secs)}`}>
-          <div className="relative">
-            <Chart data={rx.current} max={netMax} color="#06b6d4" />
-            <div className="absolute inset-0"><Chart data={tx.current} max={netMax} color="#d946ef" /></div>
-          </div>
-        </Card>
-      </div>
-
-      <div className="mt-4">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <HardDrive className="size-4" /> Disks
+    <div className="flex h-full flex-col bg-background">
+      {hasGpu && (
+        <div className="flex shrink-0 gap-1 border-b border-border px-4 pt-2">
+          {(["overview", "gpu"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={cn(
+                "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-sm transition-colors",
+                tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t === "overview" ? <><Activity className="size-4" /> Overview</> : <><GpuIcon className="size-4" /> GPU · {gpus.length}</>}
+            </button>
+          ))}
         </div>
-        <div className="space-y-2">
-          {m.disks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No disks reported.</p>
-          ) : m.disks.map((d) => {
-            const pct = d.total_kb > 0 ? (d.used_kb / d.total_kb) * 100 : 0;
-            return (
-              <div key={d.mount} className="rounded-lg border border-border bg-card p-3">
-                <div className="mb-1.5 flex items-center justify-between text-sm">
-                  <span className="truncate font-mono">{d.mount}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {fmtBytes(d.used_kb * 1024)} / {fmtBytes(d.total_kb * 1024)} · {pct.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div className={cn("h-full", pct > 90 ? "bg-destructive" : pct > 75 ? "bg-orange-500" : "bg-primary")} style={{ width: `${pct}%` }} />
-                </div>
+      )}
+      <div className="min-h-0 flex-1">
+        {hasGpu && tab === "gpu" ? (
+          <GpuTab gpus={gpus} procs={m.gpu_procs ?? []} history={gpuHist.current} />
+        ) : (
+        <div className="h-full overflow-y-auto p-4">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <Card title="CPU" icon={Cpu} value={`${m.cpu_percent.toFixed(0)}%`} sub={`load ${m.load1.toFixed(2)}`}>
+              <Chart data={cpu.current} max={100} color="#22c55e" />
+            </Card>
+            <Card title="Memory" icon={MemoryStick} value={`${((m.mem_used_kb / (m.mem_total_kb || 1)) * 100).toFixed(0)}%`}
+              sub={`${fmtBytes(m.mem_used_kb * 1024)} / ${fmtBytes(m.mem_total_kb * 1024)}`}>
+              <Chart data={mem.current} max={100} color="#f59e0b" />
+            </Card>
+            <Card title="Network" icon={Activity}
+              value={<span className="flex items-center gap-3 text-base">
+                <span className="flex items-center gap-1 text-cyan-400"><ArrowDown className="size-4" />{fmtBytes(m.net_rx_bps)}/s</span>
+                <span className="flex items-center gap-1 text-fuchsia-400"><ArrowUp className="size-4" />{fmtBytes(m.net_tx_bps)}/s</span>
+              </span>}
+              sub={`uptime ${fmtUptime(m.uptime_secs)}`}>
+              <div className="relative">
+                <Chart data={rx.current} max={netMax} color="#06b6d4" />
+                <div className="absolute inset-0"><Chart data={tx.current} max={netMax} color="#d946ef" /></div>
               </div>
-            );
-          })}
+            </Card>
+          </div>
+
+          {hasGpu && <GpuSummary gpus={gpus} onOpen={() => setTab("gpu")} />}
+
+          <div className="mt-4">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <HardDrive className="size-4" /> Disks
+            </div>
+            <div className="space-y-2">
+              {m.disks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No disks reported.</p>
+              ) : m.disks.map((d) => {
+                const pct = d.total_kb > 0 ? (d.used_kb / d.total_kb) * 100 : 0;
+                return (
+                  <div key={d.mount} className="rounded-lg border border-border bg-card p-3">
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <span className="truncate font-mono">{d.mount}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {fmtBytes(d.used_kb * 1024)} / {fmtBytes(d.total_kb * 1024)} · {pct.toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                      <div className={cn("h-full", pct > 90 ? "bg-destructive" : pct > 75 ? "bg-orange-500" : "bg-primary")} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
+        )}
       </div>
     </div>
   );

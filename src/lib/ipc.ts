@@ -162,6 +162,35 @@ export interface MonitorDisk {
   used_kb: number;
   total_kb: number;
 }
+/** GPU NVIDIA (nvidia-smi). Trường null = driver không báo. */
+export interface Gpu {
+  index: number;
+  name: string;
+  util: number | null;
+  mem_used_mb: number | null;
+  mem_total_mb: number | null;
+  temp: number | null;
+  power_w: number | null;
+  power_limit_w: number | null;
+  fan: number | null;
+  clock_gr: number | null;
+  clock_mem: number | null;
+  pcie_gen: number | null;
+  pcie_width: number | null;
+  rx_mbps: number | null;
+  tx_mbps: number | null;
+}
+export interface GpuProc {
+  gpu: number;
+  pid: number;
+  kind: string;
+  sm: number | null;
+  mem_used_mb: number | null;
+  user: string | null;
+  cpu: number | null;
+  host_mem_kb: number | null;
+  command: string;
+}
 export interface Metrics {
   cpu_percent: number;
   mem_used_kb: number;
@@ -171,6 +200,8 @@ export interface Metrics {
   net_rx_bps: number;
   net_tx_bps: number;
   disks: MonitorDisk[];
+  gpus?: Gpu[];
+  gpu_procs?: GpuProc[];
 }
 
 export interface KnownHost {

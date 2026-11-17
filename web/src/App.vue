@@ -5,7 +5,7 @@ import logoUrl from "./assets/logo.svg"; // Vite sinh đường dẫn đúng v�
 const GITHUB = "https://github.com/minhngoc2512/termez";
 const RELEASES = "https://github.com/minhngoc2512/termez/releases/latest";
 const APT_URL = "https://minhngoc2512.github.io/termez/apt";
-const VERSION = "v0.4.2";
+const VERSION = "v0.4.3";
 
 const aptCmd =
   `curl -fsSL ${APT_URL}/termez-archive-keyring.gpg | sudo tee /usr/share/keyrings/termez.gpg >/dev/null\n` +
@@ -30,7 +30,7 @@ const features = [
   { key: "Storage", dot: "bg-amber", title: "Object storage", desc: "Browse S3, R2, GCS and MinIO — upload, download, and move files between buckets like SFTP." },
   { key: "Databases", dot: "bg-cyan", title: "Databases, built in", desc: "MySQL, MariaDB, PostgreSQL, ClickHouse, MongoDB, Redis and BigQuery — directly or through any host's SSH tunnel, with a read-only switch per connection." },
   { key: "SQL", dot: "bg-amber", title: "Query & manage", desc: "Schema tree, autocomplete and formatting, a sortable, filterable result grid, index and table management, and a live monitor that can kill slow queries." },
-  { key: "Monitor", dot: "bg-prompt", title: "Live host metrics", desc: "Real-time CPU, memory, disk and network charts, opened as their own tab." },
+  { key: "Monitor", dot: "bg-prompt", title: "Live host metrics", desc: "Real-time CPU, memory, disk and network charts, plus an nvtop-style GPU view for NVIDIA servers, opened as their own tab." },
   { key: "Scan", dot: "bg-magenta", title: "Network scan", desc: "Discover LAN devices by IP, MAC and vendor, sweep hosts and ports, and add a host in one click." },
   { key: "Secure", dot: "bg-cyan", title: "Locked down", desc: "Secrets live in the OS keychain, an app lock with TOTP covers the window without dropping your sessions, and host keys are verified on first use." },
   { key: "Sync", dot: "bg-amber", title: "Encrypted cloud sync", desc: "Back up your vault to a private GitHub repo, end-to-end encrypted, with automatic pull and record-level merge across devices." },
