@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, macos-14, windows-latest]
+        platform: [ubuntu-22.04, macos-15, windows-latest]
     runs-on: ${{ matrix.platform }}
     env:
       RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
